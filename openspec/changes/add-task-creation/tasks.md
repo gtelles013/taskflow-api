@@ -22,7 +22,7 @@
 
 ## 4. Endpoint POST /tasks
 
-- [ ] 4.1 Registrar rota com validacao antes de inserir e resposta JSON completa obtida do repositorio; testar com Fastify.inject criacao minima/completa e 201 somente apos persistencia confirmada.
+- [x] 4.1 Registrar rota com validacao antes de inserir e resposta JSON completa obtida do repositorio; testar com Fastify.inject criacao minima/completa e 201 somente apos persistencia confirmada.
 - [ ] 4.2 Mapear created_at para createdAt UTC ISO 8601 e definir schema de resposta com description nullable; verificar UUID, titulo apos trim, descricao e pending nos testes HTTP.
 - [ ] 4.3 Cobrir com inject JSON malformado, corpo ausente, lista/escalares/null e toda a matriz de entradas invalidas; verificar 400 e zero chamadas ao repositorio.
 - [ ] 4.4 Documentar exemplos HTTP de entrada e resposta, incluindo duplicados e ausencia de idempotencia; conferir exemplos contra testes da rota.

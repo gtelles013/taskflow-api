@@ -1,4 +1,5 @@
 import Fastify from 'fastify';
+import { registerTaskRoutes } from './task-routes';
 import { strictValidationOptions } from './task-validation';
 import type { TaskRepository } from './task-repository';
 
@@ -17,6 +18,11 @@ export interface AppOptions {
 export function buildApp(options: AppOptions = {}) {
   const app = Fastify({ logger: options.logger ?? false, ajv: { customOptions: strictValidationOptions } });
   app.decorate('taskRepository', options.taskRepository ?? null);
+
+  // Keep the route unavailable until a repository is explicitly provided.
+  if (options.taskRepository) {
+    registerTaskRoutes(app, options.taskRepository);
+  }
 
   app.addHook('onClose', async () => {
     await options.taskRepository?.close?.();
