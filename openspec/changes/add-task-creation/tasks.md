@@ -15,8 +15,8 @@
 
 ## 3. PostgreSQL
 
-- [ ] 3.1 Configurar pool com timeout finito e ambiente de testes dedicado; verificar conexao UTF-8, teardown e falha clara da suite de integracao quando TEST_DATABASE_URL nao estiver disponivel.
-- [ ] 3.2 Criar migracao versionada para tasks com UUID/default, title e description com CHECKs, pending/default e created_at com precisao de milissegundos; aplicar em banco de teste e verificar defaults, NOT NULL, limites Unicode e ausencia de unicidade de titulo.
+- [x] 3.1 Configurar pool com timeout finito e ambiente de testes dedicado; verificar conexao UTF-8, teardown e falha clara da suite de integracao quando TEST_DATABASE_URL nao estiver disponivel.
+- [x] 3.2 Criar migracao versionada para tasks com UUID/default, title e description com CHECKs, pending/default e created_at com precisao de milissegundos; aplicar em banco de teste e verificar defaults, NOT NULL, limites Unicode e ausencia de unicidade de titulo.
 - [ ] 3.3 Implementar repositorio create com SQL parametrizado e INSERT RETURNING, omitindo campos gerados; testar em PostgreSQL real UUID, pending, data, descricao nula/vazia/com espacos e titulos duplicados.
 - [ ] 3.4 Documentar migracao, precondicao gen_random_uuid() e rollback operacional preservando dados; verificar migracao em banco descartavel e instrucoes locais.
 
