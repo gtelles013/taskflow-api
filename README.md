@@ -1,6 +1,6 @@
 # TaskFlow API
 
-Base Node.js/TypeScript com Fastify, driver pg e Vitest. A infraestrutura PostgreSQL e a migracao versionada 0001 estao implementadas. A migracao foi aplicada em taskflow_test.public, onde a tabela tasks existe; nao foi aplicada em taskflow_dev. O repositorio PostgreSQL foi implementado, mas ainda aguarda validacao por integracao real. O servidor inicia sem conexao com PostgreSQL e o endpoint POST /tasks ainda nao foi implementado.
+Base Node.js/TypeScript com Fastify, driver pg e Vitest. A infraestrutura PostgreSQL e a migracao versionada 0001 estao implementadas. A migracao foi aplicada em taskflow_test.public, onde a tabela tasks existe; nao ha comprovacao de aplicacao em taskflow_dev. O repositorio PostgreSQL foi implementado e validado por seis testes reais em schemas temporarios de taskflow_test. O servidor inicia sem conexao com PostgreSQL e o endpoint POST /tasks ainda nao foi implementado.
 
 ## Requisitos
 
@@ -31,9 +31,11 @@ set PORT=3001
 npm.cmd run dev
 ```
 
-Ctrl+C encerra o servidor. A fabrica em src/app.ts nao chama listen; src/server.ts e o entrypoint. A fabrica aceita taskRepository opcional e fecha seu metodo close, quando fornecido, junto com a aplicacao. O repositorio PostgreSQL implementado ainda aguarda validacao por integracao real e nao esta conectado ao entrypoint. Nao ha fallback em memoria.
+Ctrl+C encerra o servidor. A fabrica em src/app.ts nao chama listen; src/server.ts e o entrypoint. A fabrica aceita taskRepository opcional e fecha seu metodo close, quando fornecido, junto com a aplicacao. O repositorio PostgreSQL foi validado por integracao real e ainda nao esta conectado ao entrypoint. Nao ha fallback em memoria.
 
 ## Configuracao do PostgreSQL
+
+Procedimento operacional, modos do executor, verificacoes e rollback preservando dados: [Migracoes PostgreSQL](docs/migrations.md).
 
 PostgreSQL local confirmado: 18.6, localhost:5432, bancos taskflow_dev e taskflow_test com encoding UTF8 e proprietario taskflow_app.
 
@@ -120,4 +122,4 @@ set "TEST_DATABASE_URL="
 node node_modules/vitest/vitest.mjs run --config vitest.integration.config.mts
 ```
 
-O resultado esperado e falha com TEST_DATABASE_URL is required, sem tentativa de conexao. A verificacao e somente de configuracao/conexao. A migracao 0001 e a tabela tasks ja estao disponiveis em taskflow_test.public. Os testes de migracao em schemas isolados foram executados separadamente; o repositorio PostgreSQL ainda aguarda sua propria validacao por integracao real. O endpoint POST /tasks permanece pendente.
+O resultado esperado e falha com TEST_DATABASE_URL is required, sem tentativa de conexao. A verificacao e somente de configuracao/conexao. A migracao 0001 e a tabela tasks ja estao disponiveis em taskflow_test.public. Os testes de migracao em schemas isolados foram executados separadamente; o repositorio PostgreSQL tambem foi validado por seis testes reais em schemas temporarios. O endpoint POST /tasks permanece pendente.
