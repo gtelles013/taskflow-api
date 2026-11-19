@@ -1,10 +1,20 @@
 import type { FastifyInstance } from 'fastify';
 import type { TaskRepository } from './task-repository';
+import { taskCreationResponseSchema } from './task-response';
+import type { TaskCreationResponse } from './task-response';
 import { TaskValidationError, validateTaskInput } from './task-validation';
 import type { ValidatedTaskInput } from './task-validation';
 
 export function registerTaskRoutes(app: FastifyInstance, repository: TaskRepository): void {
-  app.post('/tasks', async (request, reply) => {
+  app.post<{
+    Reply: {
+      201: TaskCreationResponse;
+      400: { message: string };
+      500: { message: string };
+    };
+  }>('/tasks', {
+    schema: { response: { 201: taskCreationResponseSchema } },
+  }, async (request, reply) => {
     let input: ValidatedTaskInput;
     try {
       input = validateTaskInput(request.body);
@@ -23,7 +33,7 @@ export function registerTaskRoutes(app: FastifyInstance, repository: TaskReposit
         description: task.description,
         status: task.status,
         createdAt: task.createdAt.toISOString(),
-      });
+      } satisfies TaskCreationResponse);
     } catch {
       // Provisional response; centralized error classification belongs to section 5.
       return reply.code(500).send({ message: 'Internal server error' });

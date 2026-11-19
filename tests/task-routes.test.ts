@@ -1,5 +1,8 @@
+import Fastify from 'fastify';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import { buildApp } from '../src/app';
+import { registerTaskRoutes } from '../src/task-routes';
+import { taskCreationResponseSchema } from '../src/task-response';
 import type { Task, TaskRepository } from '../src/task-repository';
 import * as validation from '../src/task-validation';
 
@@ -34,6 +37,15 @@ describe('POST /tasks with an injected repository', () => {
       const response = await app.inject({ method: 'POST', url: '/tasks', payload: { title: 'Example' } });
       expect(response.statusCode).toBe(201);
       expect(response.headers['content-type']).toContain('application/json');
+      const body = response.json();
+      expect(Object.keys(body).sort()).toEqual(['createdAt', 'description', 'id', 'status', 'title']);
+      expect(typeof body.id).toBe('string');
+      expect(body.id).toMatch(/^[a-f0-9]{8}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{12}$/i);
+      expect(typeof body.title).toBe('string');
+      expect(body.description).toBeNull();
+      expect(body.status).toBe('pending');
+      expect(typeof body.createdAt).toBe('string');
+      expect(body.createdAt).toMatch(/^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}\.\d{3}Z$/);
       expect(response.json()).toEqual({
         id: '550e8400-e29b-41d4-a716-446655440000',
         title: 'Example',
@@ -88,7 +100,81 @@ describe('POST /tasks with an injected repository', () => {
         status: task.status,
         createdAt: '2020-01-02T00:04:05.678Z',
       });
+      expect(Date.parse(response.json().createdAt)).toBe(task.createdAt.getTime());
       expect(repository.create).toHaveBeenCalledExactlyOnceWith({ title: 'Input', description: null });
+    } finally {
+      await app.close();
+    }
+  });
+
+  it('associates the creation response schema exclusively with status 201', async () => {
+    const app = Fastify();
+    let responseSchemas: unknown;
+    app.addHook('onRoute', (options) => {
+      if (options.method === 'POST' && options.url === '/tasks') {
+        responseSchemas = options.schema?.response;
+      }
+    });
+    try {
+      registerTaskRoutes(app, mockRepository());
+      await app.ready();
+      expect(responseSchemas).toEqual({ 201: taskCreationResponseSchema });
+      expect(taskCreationResponseSchema).toEqual({
+        type: 'object',
+        required: ['id', 'title', 'description', 'status', 'createdAt'],
+        additionalProperties: false,
+        properties: {
+          id: { type: 'string', format: 'uuid' },
+          title: { type: 'string' },
+          description: { type: ['string', 'null'] },
+          status: { type: 'string', enum: ['pending'] },
+          createdAt: { type: 'string', format: 'date-time' },
+        },
+      });
+    } finally {
+      await app.close();
+    }
+  });
+
+  it('preserves an empty description as a string in the response', async () => {
+    const task = returnedTask({ description: '' });
+    const repository = mockRepository(task);
+    const app = buildApp({ taskRepository: repository });
+    try {
+      const response = await app.inject({
+        method: 'POST', url: '/tasks', payload: { title: 'Example', description: '' },
+      });
+      expect(response.statusCode).toBe(201);
+      expect(repository.create).toHaveBeenCalledExactlyOnceWith({ title: 'Example', description: '' });
+      expect(response.json()).toEqual({ ...task, createdAt: task.createdAt.toISOString() });
+      expect(typeof response.json().description).toBe('string');
+    } finally {
+      await app.close();
+    }
+  });
+
+  it('omits repository-only properties without modifying the returned object', async () => {
+    const task = Object.freeze({ ...returnedTask(), internalNote: 'Repository-only metadata' });
+    const original = { ...task };
+    const originalDate = task.createdAt;
+    const repository = mockRepository(task);
+    const app = buildApp({ taskRepository: repository });
+    try {
+      const response = await app.inject({ method: 'POST', url: '/tasks', payload: { title: 'Example' } });
+      expect(response.statusCode).toBe(201);
+      expect(response.json()).toEqual({
+        id: task.id,
+        title: task.title,
+        description: task.description,
+        status: task.status,
+        createdAt: task.createdAt.toISOString(),
+      });
+      expect(response.json()).not.toHaveProperty('internalNote');
+      expect(response.body).not.toContain(task.internalNote);
+      expect(task).toEqual(original);
+      expect(task.createdAt).toBe(originalDate);
+      expect(task.createdAt.getTime()).toBe(Date.parse('2026-11-19T15:30:45.123Z'));
+      expect(task.internalNote).toBe('Repository-only metadata');
     } finally {
       await app.close();
     }
