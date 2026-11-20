@@ -1,3 +1,4 @@
+import { classifyPostgresFailure, createPostgresAcquisitionTimeoutError, PostgresOperationError } from '../src/postgres-errors';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import type { Pool, PoolClient } from 'pg';
 import type { TaskRepository } from '../src/task-repository';
@@ -155,5 +156,105 @@ describe('PostgresTaskRepository using a borrowed mock executor', () => {
     expect(executor.end).not.toHaveBeenCalled();
     expect(executor.release).not.toHaveBeenCalled();
     expect(executor.connect).not.toHaveBeenCalled();
+  });
+});
+
+
+describe('PostgreSQL failure classification at the repository boundary', () => {
+  it.each([
+    '08000', '08001', '08003', '08004', '08006', '08007', '08P01', '08ZZZ',
+    '57P01', '57P02', '57P03', 'ECONNREFUSED', 'ECONNRESET', 'ENOTFOUND', 'ETIMEDOUT',
+  ])('classifies structured code %s as unavailable with one INSERT', async (code) => {
+    query.mockRejectedValue(Object.assign(new Error('PRIVATE SQL password'), { code }));
+    const failure = await new PostgresTaskRepository(executor)
+      .create({ title: 'Task', description: null }).catch((error: unknown) => error);
+    expect(failure).toBeInstanceOf(TaskRepositoryError);
+    expect(failure).toMatchObject({ category: 'unavailable', databaseCode: code });
+    expect(String(failure) + JSON.stringify(failure)).not.toContain('PRIVATE');
+    expect(query).toHaveBeenCalledOnce();
+  });
+
+  it.each([
+    '28000', '28P01', '42501', '23502', '23503', '23505', '23514', '42P01',
+    '42601', '57014', '53300', 'UNKNOWN', '08', '08P01\n', '08p01', '', undefined,
+  ])('keeps code %s internal with no retry', async (code) => {
+    query.mockRejectedValue(Object.assign(new Error('timeout connection PRIVATE'), { code, statusCode: 503 }));
+    const failure = await new PostgresTaskRepository(executor)
+      .create({ title: 'Task', description: null }).catch((error: unknown) => error);
+    expect(failure).toMatchObject({ category: 'internal' });
+    expect(String(failure) + JSON.stringify(failure)).not.toContain('PRIVATE');
+    expect(query).toHaveBeenCalledOnce();
+  });
+
+  it.each([null, undefined, 1, 'connection timeout', { category: 'unavailable', statusCode: 503 }])(
+    'does not trust arbitrary failure metadata %#', async (failure) => {
+      query.mockRejectedValue(failure);
+      await expect(new PostgresTaskRepository(executor).create({ title: 'Task', description: null }))
+        .rejects.toMatchObject({ category: 'internal', databaseCode: undefined });
+      expect(query).toHaveBeenCalledOnce();
+    },
+  );
+
+  it('does not invoke an arbitrary code getter', async () => {
+    const getter = vi.fn(() => { throw new Error('PRIVATE'); });
+    query.mockRejectedValue(Object.defineProperty({}, 'code', { get: getter }));
+    await expect(new PostgresTaskRepository(executor).create({ title: 'Task', description: null }))
+      .rejects.toMatchObject({ category: 'internal' });
+    expect(getter).not.toHaveBeenCalled();
+  });
+
+  it('never classifies mapping failures as unavailability', async () => {
+    query.mockResolvedValue({ rows: [], code: 'ECONNRESET' });
+    await expect(new PostgresTaskRepository(executor).create({ title: 'Task', description: null }))
+      .rejects.toMatchObject({ category: 'internal', code: 'TASK_REPOSITORY_RESULT_INVALID' });
+    expect(query).toHaveBeenCalledOnce();
+  });
+});
+
+
+describe('normalization of previously classified failures', () => {
+  it.each([
+    ['invalid runtime category', new PostgresOperationError('invalid' as 'internal', 'ECONNRESET'), 'internal', undefined],
+    ['sensitive databaseCode', new PostgresOperationError('unavailable', 'PRIVATE SQL password'), 'internal', undefined],
+    ['approved code', new PostgresOperationError('unavailable', 'ECONNRESET'), 'unavailable', 'ECONNRESET'],
+    ['authentication', new PostgresOperationError('unavailable', '28P01'), 'internal', '28P01'],
+    ['invalid SQLSTATE suffix', new PostgresOperationError('unavailable', '08P01\n'), 'internal', undefined],
+    ['unbranded unavailable instance', new PostgresOperationError('unavailable', undefined), 'internal', undefined],
+    ['forged string marker', { code: 'ACQUISITION_TIMEOUT', category: 'unavailable' }, 'internal', undefined],
+    ['forged error name', { name: 'PostgresAcquisitionTimeoutError', message: 'timeout' }, 'internal', undefined],
+  ])('normalizes %s without retaining raw metadata', async (_name, error, category, code) => {
+    Object.assign(error as object, { cause: new Error('PRIVATE cause') });
+    const normalized = classifyPostgresFailure(error);
+    expect(normalized).not.toBe(error);
+    expect(normalized).toMatchObject({ category, databaseCode: code });
+    expect(normalized.cause).toBeUndefined();
+    expect(String(normalized) + normalized.stack + JSON.stringify(normalized)).not.toContain('PRIVATE');
+    query.mockRejectedValue(error);
+    const failure = await new PostgresTaskRepository(executor)
+      .create({ title: 'Task', description: null }).catch((caught: unknown) => caught);
+    expect(failure).toMatchObject({ category, databaseCode: code });
+    expect(String(failure) + JSON.stringify(failure)).not.toContain('PRIVATE');
+    expect(query).toHaveBeenCalledOnce();
+  });
+
+  it('preserves legitimate timeout identity across repeated reconstruction', async () => {
+    const original = createPostgresAcquisitionTimeoutError();
+    const first = classifyPostgresFailure(original);
+    const second = classifyPostgresFailure(first);
+    expect(first).not.toBe(original);
+    expect(second).not.toBe(first);
+    expect(second).toMatchObject({ category: 'unavailable', databaseCode: undefined });
+    query.mockRejectedValue(second);
+    await expect(new PostgresTaskRepository(executor).create({ title: 'Task', description: null }))
+      .rejects.toMatchObject({ category: 'unavailable', databaseCode: undefined });
+    expect(query).toHaveBeenCalledOnce();
+  });
+
+  it.each(['category', 'databaseCode'])('does not invoke a classified error %s getter', (field) => {
+    const error = new PostgresOperationError('unavailable', 'ECONNRESET');
+    const getter = vi.fn(() => { throw new Error('PRIVATE getter'); });
+    Object.defineProperty(error, field, { get: getter });
+    expect(classifyPostgresFailure(error)).toMatchObject({ category: 'internal', databaseCode: undefined });
+    expect(getter).not.toHaveBeenCalled();
   });
 });

@@ -1,6 +1,7 @@
 import type { FastifyInstance } from 'fastify';
-import { InternalHttpError, RequestValidationError } from './http-errors';
-import type { TaskRepository } from './task-repository';
+import { DatabaseUnavailableHttpError, InternalHttpError, RequestValidationError } from './http-errors';
+import { isPostgresRepositoryUnavailable } from './postgres-task-repository';
+import type { Task, TaskRepository } from './task-repository';
 import { taskCreationResponseSchema } from './task-response';
 import type { TaskCreationResponse } from './task-response';
 import { TaskValidationError, validateTaskInput } from './task-validation';
@@ -24,8 +25,16 @@ export function registerTaskRoutes(app: FastifyInstance, repository: TaskReposit
       throw new InternalHttpError();
     }
 
+    let task: Task;
     try {
-      const task = await repository.create(input);
+      task = await repository.create(input);
+    } catch (error) {
+      if (isPostgresRepositoryUnavailable(error)) throw new DatabaseUnavailableHttpError();
+      throw new InternalHttpError();
+    }
+
+    // Response mapping/serialization failures never become database-unavailable responses.
+    try {
       return reply.code(201).send({
         id: task.id,
         title: task.title,

@@ -28,8 +28,22 @@ export class InternalHttpError extends Error {
   }
 }
 
+// Constructed only when the route recognizes a registered persistence failure.
+export class DatabaseUnavailableHttpError extends Error {
+  constructor() {
+    super('Database unavailable');
+    this.name = 'DatabaseUnavailableHttpError';
+  }
+}
+
 export function registerHttpErrorHandler(app: FastifyInstance): void {
   app.setErrorHandler((error: unknown, _request, reply) => {
+    if (error instanceof DatabaseUnavailableHttpError) {
+      return reply.code(503).send({
+        error: { code: 'DATABASE_UNAVAILABLE', message: 'Database unavailable' },
+      });
+    }
+
     if (error instanceof RequestValidationError ||
         error instanceof errorCodes.FST_ERR_CTP_INVALID_JSON_BODY ||
         error instanceof errorCodes.FST_ERR_CTP_EMPTY_JSON_BODY ||

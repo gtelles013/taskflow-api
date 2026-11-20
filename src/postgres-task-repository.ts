@@ -1,4 +1,6 @@
 import type { Task, TaskRepository } from './task-repository';
+import { classifyPostgresFailure } from './postgres-errors';
+import type { PostgresFailureCategory } from './postgres-errors';
 
 export interface TaskQueryExecutor {
   query(text: string, values: (string | null)[]): Promise<unknown>;
@@ -9,27 +11,22 @@ export type TaskRepositoryErrorCode =
   | 'TASK_REPOSITORY_QUERY_FAILED'
   | 'TASK_REPOSITORY_RESULT_INVALID';
 
+// Only the query-failure boundary below registers final repository errors.
+const unavailableRepositoryErrors = new WeakSet<object>();
+
+export function isPostgresRepositoryUnavailable(error: unknown): boolean {
+  return typeof error === 'object' && error !== null && unavailableRepositoryErrors.has(error);
+}
+
 export class TaskRepositoryError extends Error {
   constructor(
     public readonly code: TaskRepositoryErrorCode,
     public readonly databaseCode?: string,
+    public readonly category: PostgresFailureCategory = 'internal',
   ) {
     super(code);
     this.name = 'TaskRepositoryError';
   }
-}
-
-const safeDatabaseCodes = new Set([
-  'ECONNREFUSED', 'ECONNRESET', 'ENOTFOUND', 'ETIMEDOUT',
-  '08000', '08001', '08003', '08004', '08006', '08007', '08P01',
-  '57P01', '57P02', '57P03', '28P01', '28000',
-  '23502', '23503', '23505', '23514', '42501', '42P01',
-]);
-
-function sanitizedDatabaseCode(error: unknown): string | undefined {
-  if (typeof error !== 'object' || error === null || !('code' in error)) return undefined;
-  return typeof error.code === 'string' && safeDatabaseCodes.has(error.code)
-    ? error.code : undefined;
 }
 
 function quoteSchema(schema: unknown): string {
@@ -84,7 +81,10 @@ export class PostgresTaskRepository implements TaskRepository {
       result = await this.executor.query(this.insertSql, [input.title, input.description]);
     } catch (error) {
       // Do not retain cause, raw driver messages, SQL, parameters or connection settings.
-      throw new TaskRepositoryError('TASK_REPOSITORY_QUERY_FAILED', sanitizedDatabaseCode(error));
+      const failure = classifyPostgresFailure(error);
+      const repositoryError = new TaskRepositoryError('TASK_REPOSITORY_QUERY_FAILED', failure.databaseCode, failure.category);
+      if (failure.category === 'unavailable') unavailableRepositoryErrors.add(repositoryError);
+      throw repositoryError;
     }
     return mapResult(result);
   }

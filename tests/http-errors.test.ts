@@ -1,3 +1,6 @@
+import { PostgresTaskRepository, TaskRepositoryError, isPostgresRepositoryUnavailable } from '../src/postgres-task-repository';
+import { PostgresQueryExecutor } from '../src/postgres-query-executor';
+import { PostgresOperationError, createPostgresAcquisitionTimeoutError } from '../src/postgres-errors';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import { errorCodes } from 'fastify';
 import { buildApp } from '../src/app';
@@ -200,6 +203,163 @@ describe('central HTTP error handling', () => {
       expect(validate).not.toHaveBeenCalled();
       expect(repository.create).not.toHaveBeenCalled();
     } finally {
+      await app.close();
+    }
+  });
+});
+
+
+const unavailableEnvelope = { error: { code: 'DATABASE_UNAVAILABLE', message: 'Database unavailable' } };
+const sensitiveInput = { title: 'SENSITIVE_SENTINEL', description: 'PARAM_SENTINEL' };
+const expectedInsert = 'INSERT INTO "public".tasks (title, description) VALUES ($1, $2) ' +
+  'RETURNING id, title, description, status, created_at';
+
+function assertPublicFailure(response: { statusCode: number; body: string; json(): unknown }, status: 500 | 503) {
+  expect(response.statusCode).toBe(status);
+  expect(response.json()).toEqual(status === 503 ? unavailableEnvelope : internalEnvelope);
+  expectSanitized(response.body);
+  expect(response.body).not.toContain('PARAM_SENTINEL');
+  expect(response.body).not.toContain('DRIVER_STACK_SENTINEL');
+}
+
+describe('PostgreSQL persistence identity to HTTP translation without a database', () => {
+  it.each([
+    '08000', '08001', '08003', '08004', '08006', '08007', '08P01',
+    '57P01', '57P02', '57P03', 'ECONNREFUSED', 'ECONNRESET', 'ENOTFOUND', 'ETIMEDOUT',
+  ])('returns exact 503 for driver code %s through the real repository', async (code) => {
+    const error = Object.assign(new Error('SENSITIVE_SENTINEL SELECT private_data'), {
+      code, sql: 'SELECT private_data', parameters: ['PARAM_SENTINEL'], password: 'SENSITIVE_SENTINEL',
+      stack: 'DRIVER_STACK_SENTINEL', cause: new Error('SENSITIVE_SENTINEL'),
+    });
+    const query = vi.fn().mockRejectedValue(error);
+    const repository = new PostgresTaskRepository({ query });
+    const create = vi.spyOn(repository, 'create');
+    const app = buildApp({ taskRepository: repository });
+    try {
+      const response = await app.inject({ method: 'POST', url: '/tasks', payload: sensitiveInput });
+      assertPublicFailure(response, 503);
+      expect(create).toHaveBeenCalledExactlyOnceWith(sensitiveInput);
+      expect(query).toHaveBeenCalledExactlyOnceWith(expectedInsert, ['SENSITIVE_SENTINEL', 'PARAM_SENTINEL']);
+    } finally { await app.close(); }
+  });
+
+  it.each([
+    { name: 'unknown INSERT failure', error: new Error('SENSITIVE_SENTINEL connection timeout') },
+    { name: 'unknown code', error: { code: 'UNKNOWN', message: 'SENSITIVE_SENTINEL' } },
+    { name: 'authentication', error: { code: '28P01' } },
+    { name: 'authorization', error: { code: '28000' } },
+    { name: 'permission', error: { code: '42501' } },
+    { name: 'check constraint', error: { code: '23514' } },
+    { name: 'not-null constraint', error: { code: '23502' } },
+    { name: 'unique constraint', error: { code: '23505' } },
+    { name: 'statement cancellation', error: { code: '57014' } },
+    { name: 'programming error', error: { code: '42601' } },
+  ])('returns exact 500 for $name through the real repository', async ({ error }) => {
+    const query = vi.fn().mockRejectedValue(error);
+    const repository = new PostgresTaskRepository({ query });
+    const create = vi.spyOn(repository, 'create');
+    const app = buildApp({ taskRepository: repository });
+    try {
+      const response = await app.inject({ method: 'POST', url: '/tasks', payload: sensitiveInput });
+      assertPublicFailure(response, 500);
+      expect(create).toHaveBeenCalledExactlyOnceWith(sensitiveInput);
+      expect(query).toHaveBeenCalledExactlyOnceWith(expectedInsert, ['SENSITIVE_SENTINEL', 'PARAM_SENTINEL']);
+    } finally { await app.close(); }
+  });
+
+  it.each([
+    { rows: [] },
+    { rows: [{ id: 'bad', category: 'unavailable', code: 'ECONNRESET' }] },
+  ])('keeps invalid RETURNING result %# as 500 after one INSERT', async (result) => {
+    const query = vi.fn().mockResolvedValue(result);
+    const app = buildApp({ taskRepository: new PostgresTaskRepository({ query }) });
+    try {
+      assertPublicFailure(await app.inject({ method: 'POST', url: '/tasks', payload: sensitiveInput }), 500);
+      expect(query).toHaveBeenCalledExactlyOnceWith(expectedInsert, ['SENSITIVE_SENTINEL', 'PARAM_SENTINEL']);
+    } finally { await app.close(); }
+  });
+
+  it.each([
+    ['status only', { statusCode: 503, message: 'SENSITIVE_SENTINEL' }],
+    ['transport code', { code: 'ECONNREFUSED' }],
+    ['databaseCode', { databaseCode: 'ECONNREFUSED' }],
+    ['category', { category: 'unavailable' }],
+    ['all properties', { statusCode: 503, code: 'ECONNREFUSED', databaseCode: '08006', category: 'unavailable' }],
+    ['timeout message', new Error('SENSITIVE_SENTINEL connection timeout')],
+    ['forged repository instance', new TaskRepositoryError('TASK_REPOSITORY_QUERY_FAILED', 'ECONNRESET', 'unavailable')],
+    ['malformed repository prototype', Object.create(TaskRepositoryError.prototype)],
+    ['operation instance', new PostgresOperationError('unavailable', 'ECONNRESET')],
+    ['timeout instance outside persistence', createPostgresAcquisitionTimeoutError()],
+  ])('keeps raw mock failure %s as exact 500', async (_name, error) => {
+    const repository = repositoryMock();
+    repository.create.mockRejectedValue(error);
+    const app = buildApp({ taskRepository: repository });
+    try {
+      assertPublicFailure(await app.inject({ method: 'POST', url: '/tasks', payload: sensitiveInput }), 500);
+      expect(repository.create).toHaveBeenCalledExactlyOnceWith(sensitiveInput);
+      expect(isPostgresRepositoryUnavailable(error)).toBe(false);
+    } finally { await app.close(); }
+  });
+
+  it('does not grant identity to a clone of a registered persistence failure', async () => {
+    const query = vi.fn().mockRejectedValue({ code: 'ECONNRESET' });
+    const original = await new PostgresTaskRepository({ query }).create(sensitiveInput).catch((error: unknown) => error);
+    expect(isPostgresRepositoryUnavailable(original)).toBe(true);
+    const clone = Object.assign(Object.create(TaskRepositoryError.prototype), original);
+    expect(isPostgresRepositoryUnavailable(clone)).toBe(false);
+    const repository = repositoryMock();
+    repository.create.mockRejectedValue(clone);
+    const app = buildApp({ taskRepository: repository });
+    try {
+      assertPublicFailure(await app.inject({ method: 'POST', url: '/tasks', payload: sensitiveInput }), 500);
+      expect(repository.create).toHaveBeenCalledOnce();
+      expect(query).toHaveBeenCalledOnce();
+    } finally { await app.close(); }
+  });
+
+  it('does not translate a registered error thrown later during response mapping to 503', async () => {
+    const query = vi.fn().mockRejectedValue({ code: 'ECONNRESET' });
+    const original = await new PostgresTaskRepository({ query }).create(sensitiveInput).catch((error: unknown) => error);
+    expect(isPostgresRepositoryUnavailable(original)).toBe(true);
+    const repository = repositoryMock();
+    const date = Object.assign(new Date(), { toISOString: () => { throw original; } });
+    repository.create.mockResolvedValue({
+      id: '550e8400-e29b-41d4-a716-446655440000', title: 'Example', description: null,
+      status: 'pending', createdAt: date,
+    });
+    const app = buildApp({ taskRepository: repository });
+    try {
+      assertPublicFailure(await app.inject({ method: 'POST', url: '/tasks', payload: sensitiveInput }), 500);
+      expect(repository.create).toHaveBeenCalledExactlyOnceWith(sensitiveInput);
+    } finally { await app.close(); }
+  });
+
+  it('returns exact 503 for a controlled acquisition timeout through executor and repository', async () => {
+    let started!: () => void;
+    const acquisitionStarted = new Promise<void>((resolve) => { started = resolve; });
+    let rejectAcquisition!: (error: unknown) => void;
+    const acquisition = new Promise<never>((_resolve, reject) => { rejectAcquisition = reject; });
+    const connect = vi.fn(() => { started(); return acquisition; });
+    const executor = new PostgresQueryExecutor({ connect });
+    const query = vi.spyOn(executor, 'query');
+    const repository = new PostgresTaskRepository(executor);
+    const create = vi.spyOn(repository, 'create');
+    const app = buildApp({ taskRepository: repository });
+    await app.ready();
+    vi.useFakeTimers({ toFake: ['setTimeout', 'clearTimeout', 'performance'] });
+    try {
+      const pendingResponse = app.inject({ method: 'POST', url: '/tasks', payload: sensitiveInput })
+        .then((response) => response);
+      await acquisitionStarted;
+      await vi.advanceTimersByTimeAsync(2500);
+      assertPublicFailure(await pendingResponse, 503);
+      expect(connect).toHaveBeenCalledOnce();
+      expect(query).toHaveBeenCalledExactlyOnceWith(expectedInsert, ['SENSITIVE_SENTINEL', 'PARAM_SENTINEL']);
+      expect(create).toHaveBeenCalledExactlyOnceWith(sensitiveInput);
+    } finally {
+      rejectAcquisition(new Error('SENSITIVE_SENTINEL late acquisition'));
+      await Promise.resolve();
+      vi.useRealTimers();
       await app.close();
     }
   });
