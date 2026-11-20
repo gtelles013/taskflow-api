@@ -1,4 +1,5 @@
 import Fastify from 'fastify';
+import { registerHttpErrorHandler } from './http-errors';
 import { registerTaskRoutes } from './task-routes';
 import { strictValidationOptions } from './task-validation';
 import type { TaskRepository } from './task-repository';
@@ -17,6 +18,7 @@ export interface AppOptions {
 // An injected repository belongs to this app and is closed with it.
 export function buildApp(options: AppOptions = {}) {
   const app = Fastify({ logger: options.logger ?? false, ajv: { customOptions: strictValidationOptions } });
+  registerHttpErrorHandler(app);
   app.decorate('taskRepository', options.taskRepository ?? null);
 
   // Keep the route unavailable until a repository is explicitly provided.

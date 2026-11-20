@@ -263,7 +263,7 @@ describe('POST /tasks with an injected repository', () => {
     try {
       const response = await app.inject({ method: 'POST', url: '/tasks', payload: { title: 'Example' } });
       expect(response.statusCode).toBe(500);
-      expect(response.json()).toEqual({ message: 'Internal server error' });
+      expect(response.json()).toEqual({ error: { code: 'INTERNAL_ERROR', message: 'Internal server error' } });
       expect(response.body).not.toContain(internalError.message);
       expect(response.body).not.toContain('stack');
       expect(validate).toHaveBeenCalledExactlyOnceWith({ title: 'Example' });
@@ -284,7 +284,7 @@ describe('POST /tasks with an injected repository', () => {
     try {
       const response = await app.inject({ method: 'POST', url: '/tasks', payload: { title: 'Example' } });
       expect(response.statusCode).toBe(500);
-      expect(response.json()).toEqual({ message: 'Internal server error' });
+      expect(response.json()).toEqual({ error: { code: 'INTERNAL_ERROR', message: 'Internal server error' } });
       expect(response.body).not.toContain(error.message);
       expect(response.body).not.toContain('stack');
       expect(repository.create).toHaveBeenCalledOnce();
@@ -341,6 +341,7 @@ function expectSafeInputError(body: string): void {
   const parsed: unknown = JSON.parse(body);
   expect(parsed).toBeTypeOf('object');
   expect(parsed).not.toBeNull();
+  expect(parsed).toMatchObject({ error: { code: 'VALIDATION_ERROR', message: 'Invalid task input' } });
   expect(body).not.toContain('sensitive-test-marker');
   expect(body).not.toMatch(/postgres(?:ql)?:\/\//i);
   expect(body).not.toMatch(/"(?:stack|sql|query|parameters|password|connectionString)"\s*:/i);

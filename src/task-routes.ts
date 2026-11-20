@@ -1,4 +1,5 @@
 import type { FastifyInstance } from 'fastify';
+import { InternalHttpError, RequestValidationError } from './http-errors';
 import type { TaskRepository } from './task-repository';
 import { taskCreationResponseSchema } from './task-response';
 import type { TaskCreationResponse } from './task-response';
@@ -9,8 +10,6 @@ export function registerTaskRoutes(app: FastifyInstance, repository: TaskReposit
   app.post<{
     Reply: {
       201: TaskCreationResponse;
-      400: { message: string };
-      500: { message: string };
     };
   }>('/tasks', {
     schema: { response: { 201: taskCreationResponseSchema } },
@@ -19,10 +18,10 @@ export function registerTaskRoutes(app: FastifyInstance, repository: TaskReposit
     try {
       input = validateTaskInput(request.body);
     } catch (error) {
-      if (!(error instanceof TaskValidationError)) {
-        return reply.code(500).send({ message: 'Internal server error' });
+      if (error instanceof TaskValidationError) {
+        throw new RequestValidationError(error.field);
       }
-      return reply.code(400).send({ message: 'Invalid task input' });
+      throw new InternalHttpError();
     }
 
     try {
@@ -35,8 +34,8 @@ export function registerTaskRoutes(app: FastifyInstance, repository: TaskReposit
         createdAt: task.createdAt.toISOString(),
       } satisfies TaskCreationResponse);
     } catch {
-      // Provisional response; centralized error classification belongs to section 5.
-      return reply.code(500).send({ message: 'Internal server error' });
+      // Repository errors never become request-validation errors, regardless of their type/status.
+      throw new InternalHttpError();
     }
   });
 }
