@@ -1,6 +1,6 @@
 # Validacao de entrada de tarefas
 
-O modulo src/task-validation.ts valida objetos ja decodificados de JSON. Ainda nao registra POST /tasks nem acessa PostgreSQL. Parsing JSON e respostas HTTP serao integrados nas tarefas do endpoint.
+O modulo src/task-validation.ts valida objetos ja decodificados de JSON. Esse modulo nao registra rotas nem acessa PostgreSQL. A rota POST /tasks ja utiliza esta validacao na fabrica Fastify quando TaskRepository e injetado; a composicao operacional no entrypoint ainda esta pendente. Exemplos HTTP estao em [Criacao de tarefas](task-creation.md).
 
 ## Estrutura estrita
 
@@ -20,7 +20,7 @@ Entrada: {"title":"  Exemplo  ","description":"  texto  "}
 
 Resultado interno: {"title":"Exemplo","description":"  texto  "}
 
-Descricao ausente produz description: null no resultado interno, sem alterar a entrada. Descricao vazia permanece "". Uma descricao somente de espacos e aceita dentro do limite. O modulo retorna um novo objeto e lanca TaskValidationError para entradas invalidas; nao produz respostas HTTP nesta etapa.
+Descricao ausente produz description: null no resultado interno, sem alterar a entrada. Descricao vazia permanece "". Uma descricao somente de espacos e aceita dentro do limite. O modulo retorna um novo objeto e lanca TaskValidationError para entradas invalidas; nao produz respostas HTTP diretamente; a rota traduz suas falhas, e o contrato centralizado de erros permanece pendente na secao 5.
 
 ## Pontos de codigo Unicode
 

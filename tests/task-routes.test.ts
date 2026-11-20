@@ -180,6 +180,33 @@ describe('POST /tasks with an injected repository', () => {
     }
   });
 
+  it('forwards two requests with the same title as distinct creations without deduplication', async () => {
+    const firstTask = returnedTask({ title: 'Repeated' });
+    const secondTask = returnedTask({
+      id: '123e4567-e89b-42d3-a456-426614174000',
+      title: 'Repeated',
+      createdAt: new Date('2026-11-19T15:30:46.123Z'),
+    });
+    const repository = mockRepository();
+    repository.create.mockResolvedValueOnce(firstTask).mockResolvedValueOnce(secondTask);
+    const app = buildApp({ taskRepository: repository });
+    try {
+      const first = await app.inject({ method: 'POST', url: '/tasks', payload: { title: '  Repeated  ' } });
+      const second = await app.inject({ method: 'POST', url: '/tasks', payload: { title: '  Repeated  ' } });
+      expect(first.statusCode).toBe(201);
+      expect(second.statusCode).toBe(201);
+      expect(first.json()).toEqual({ ...firstTask, createdAt: firstTask.createdAt.toISOString() });
+      expect(second.json()).toEqual({ ...secondTask, createdAt: secondTask.createdAt.toISOString() });
+      expect(first.json().id).not.toBe(second.json().id);
+      expect(repository.create).toHaveBeenCalledTimes(2);
+      expect(repository.create).toHaveBeenNthCalledWith(1, { title: 'Repeated', description: null });
+      expect(repository.create).toHaveBeenNthCalledWith(2, { title: 'Repeated', description: null });
+    } finally {
+      await app.close();
+    }
+    expect(repository.close).toHaveBeenCalledOnce();
+  });
+
   it('does not finish the HTTP response until create confirms persistence', async () => {
     const task = returnedTask();
     let complete!: (task: Task) => void;

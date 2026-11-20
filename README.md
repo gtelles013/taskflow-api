@@ -1,6 +1,8 @@
 # TaskFlow API
 
-Base Node.js/TypeScript com Fastify, driver pg e Vitest. A infraestrutura PostgreSQL e a migracao versionada 0001 estao implementadas. A migracao foi aplicada em taskflow_test.public, onde a tabela tasks existe; nao ha comprovacao de aplicacao em taskflow_dev. O repositorio PostgreSQL foi implementado e validado por seis testes reais em schemas temporarios de taskflow_test. O servidor inicia sem conexao com PostgreSQL e o endpoint POST /tasks ainda nao foi implementado.
+Base Node.js/TypeScript com Fastify, driver pg e Vitest. A infraestrutura PostgreSQL e a migracao versionada 0001 estao implementadas. A migracao foi aplicada em taskflow_test.public, onde a tabela tasks existe; nao ha comprovacao de aplicacao em taskflow_dev. O repositorio PostgreSQL foi implementado e validado por seis testes reais em schemas temporarios de taskflow_test. A rota POST /tasks esta implementada na fabrica quando taskRepository e injetado. O servidor atual inicia sem essa dependencia e sem conexao com PostgreSQL; npm start ainda nao disponibiliza POST /tasks.
+
+Contrato e exemplos HTTP: [Criacao de tarefas](docs/task-creation.md).
 
 ## Requisitos
 
@@ -94,7 +96,7 @@ Esse comando confirma carregamento, nao valida senha ou conectividade. Nao use e
 
 ## Testes iniciais
 
-Vitest usa Fastify.inject sem abrir porta. A suite verifica injeção e isolamento do repositorio, fechamento de recursos e que POST /tasks continua sem registro. npm.cmd run typecheck inclui src e tests; npm.cmd run build emite somente src para dist.
+Vitest usa Fastify.inject sem abrir porta. A suite verifica injeção e isolamento do repositorio, fechamento de recursos e POST /tasks com repositorio simulado: criacao, contrato de resposta, validacao e titulos duplicados. Sem repositorio injetado, a rota continua sem registro. npm.cmd run typecheck inclui src e tests; npm.cmd run build emite somente src para dist.
 
 ## Verificacao PostgreSQL (tarefa 3.1)
 
@@ -122,4 +124,4 @@ set "TEST_DATABASE_URL="
 node node_modules/vitest/vitest.mjs run --config vitest.integration.config.mts
 ```
 
-O resultado esperado e falha com TEST_DATABASE_URL is required, sem tentativa de conexao. A verificacao e somente de configuracao/conexao. A migracao 0001 e a tabela tasks ja estao disponiveis em taskflow_test.public. Os testes de migracao em schemas isolados foram executados separadamente; o repositorio PostgreSQL tambem foi validado por seis testes reais em schemas temporarios. O endpoint POST /tasks permanece pendente.
+O resultado esperado e falha com TEST_DATABASE_URL is required, sem tentativa de conexao. A verificacao e somente de configuracao/conexao. A migracao 0001 e a tabela tasks ja estao disponiveis em taskflow_test.public. Os testes de migracao em schemas isolados foram executados separadamente; o repositorio PostgreSQL tambem foi validado por seis testes reais em schemas temporarios. POST /tasks existe na fabrica com repositorio injetado; sua composicao no entrypoint permanece pendente.
