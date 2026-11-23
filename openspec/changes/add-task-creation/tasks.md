@@ -32,7 +32,7 @@
 - [x] 5.1 Centralizar envelope error com code/message estaveis e details por campo quando aplicavel; testar 400 e garantir que mensagens internas nao sejam expostas.
 - [x] 5.2 Classificar indisponibilidade por codigos estruturados de rede/driver/SQLSTATE e timeout conhecido; testar 503 para casos identificados e 500 para erros inesperados, incluindo falhas nao classificadas de insercao.
 - [x] 5.3 Registrar diagnosticos internos com identificador de requisicao sem expor SQL, credenciais ou stack traces nas respostas; testar ausencia desses dados e ausencia de retry automatico.
-- [ ] 5.4 Documentar respostas 400/503/500 e resultado incerto em queda de conexao apos commit; verificar alinhamento com o design sem prometer ausencia de linha apos falha de infraestrutura.
+- [x] 5.4 Documentar respostas 400/503/500 e resultado incerto em queda de conexao apos commit; verificar alinhamento com o design sem prometer ausencia de linha apos falha de infraestrutura.
 
 ## 6. Verificacao integrada
 

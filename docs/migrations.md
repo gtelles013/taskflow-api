@@ -6,7 +6,7 @@ A migracao migrations/0001_create_tasks.sql foi implementada e aplicada persiste
 
 Nao ha comprovacao de aplicacao em taskflow_dev. O executor atual aceita exclusivamente taskflow_test, por TEST_DATABASE_URL. Nao existe CLI dedicado ou script npm de migracao. O servidor nao executa migracoes automaticamente no startup.
 
-O repositorio PostgreSQL teve seus seis testes reais aprovados em schemas temporarios. POST /tasks continua pendente.
+O repositorio PostgreSQL teve seus seis testes reais aprovados em schemas temporarios. A rota POST /tasks ja esta implementada na fabrica Fastify quando TaskRepository e injetado. A composicao operacional no entrypoint permanece pendente na secao 6; npm start ainda nao disponibiliza esse endpoint.
 
 ## Pre-requisitos
 

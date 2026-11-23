@@ -20,7 +20,7 @@ Entrada: {"title":"  Exemplo  ","description":"  texto  "}
 
 Resultado interno: {"title":"Exemplo","description":"  texto  "}
 
-Descricao ausente produz description: null no resultado interno, sem alterar a entrada. Descricao vazia permanece "". Uma descricao somente de espacos e aceita dentro do limite. O modulo retorna um novo objeto e lanca TaskValidationError para entradas invalidas; nao produz respostas HTTP diretamente; a rota traduz suas falhas, e o contrato centralizado de erros permanece pendente na secao 5.
+Descricao ausente produz description: null no resultado interno, sem alterar a entrada. Descricao vazia permanece "". Uma descricao somente de espacos e aceita dentro do limite. O modulo retorna um novo objeto e lanca TaskValidationError para entradas invalidas; nao produz respostas HTTP diretamente; a rota traduz suas falhas, e o handler central ja produz as respostas de erro. O contrato publico esta em [Criacao de tarefas](task-creation.md#respostas-de-erro).
 
 ## Pontos de codigo Unicode
 
