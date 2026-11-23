@@ -36,7 +36,7 @@
 
 ## 6. Verificacao integrada
 
-- [ ] 6.1 Executar testes Vitest via HTTP com PostgreSQL real e consultar as linhas; verificar criacao minima/completa, limites Unicode, preservacao de descricao, UUIDs distintos para titulos duplicados e mesmo instante de createdAt.
+- [x] 6.1 Executar testes Vitest via HTTP com PostgreSQL real e consultar as linhas; verificar criacao minima/completa, limites Unicode, preservacao de descricao, UUIDs distintos para titulos duplicados e mesmo instante de createdAt.
 - [ ] 6.2 Testar conexao real controlada a banco indisponivel e falha inesperada simulada; verificar respectivamente 503 e 500 sem afetar ambientes de desenvolvimento/producao.
 - [ ] 6.3 Executar typecheck, build e suites unitarias/HTTP/integracao com isolamento e teardown; registrar resultados e conferir cobertura de todos os cenarios aprovados sem adicionar autenticacao, prioridade, prazo ou outros endpoints.
 

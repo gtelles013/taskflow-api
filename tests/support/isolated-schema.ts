@@ -5,6 +5,11 @@ import { runTestMigrations } from '../../src/migrations';
 
 type Variables = Readonly<Record<string, string | undefined>>;
 
+export interface IsolatedSchemaOptions {
+  /** Called once in finally, before ownership checks/DROP. Failure leaves the schema in place. */
+  readonly beforeDrop?: () => Promise<void>;
+}
+
 export interface IsolatedSchemaContext {
   readonly schema: string;
   readonly qualified: string;
@@ -42,6 +47,7 @@ async function assertTestDatabase(client: PoolClient): Promise<void> {
 export async function withIsolatedSchema<T>(
   operation: (context: IsolatedSchemaContext) => Promise<T>,
   variables: Variables = process.env,
+  options: IsolatedSchemaOptions = {},
 ): Promise<T> {
   const schema = 'taskflow_test_' + randomBytes(16).toString('hex');
   assertGeneratedName(schema);
@@ -77,7 +83,15 @@ export async function withIsolatedSchema<T>(
     failure = error instanceof IsolatedSchemaError ? error
       : new IsolatedSchemaError('ISOLATED_SCHEMA_OPERATION_FAILED');
   } finally {
-    if (client && createdByThisRun && ownedOid !== undefined) {
+    let externalResourcesClosed = true;
+    try {
+      await options.beforeDrop?.();
+    } catch {
+      // No retry, raw error or DROP when required external closure cannot be confirmed.
+      externalResourcesClosed = false;
+      failure = new IsolatedSchemaError('ISOLATED_EXTERNAL_CLOSE_FAILED_SCHEMA_MAY_REMAIN');
+    }
+    if (externalResourcesClosed && client && createdByThisRun && ownedOid !== undefined) {
       try {
         // Clear any transaction left by the test, without committing its writes.
         await client.query('ROLLBACK');

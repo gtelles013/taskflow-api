@@ -157,3 +157,83 @@ describe('isolated schema ownership without real network', () => {
     expect(fake.end).toHaveBeenCalledOnce();
   });
 });
+
+describe('required external closure before schema removal', () => {
+  it('awaits external closure once before ownership revalidation and DROP', async () => {
+    let complete!: () => void;
+    const pending = new Promise<void>((resolve) => { complete = resolve; });
+    const beforeDrop = vi.fn(() => pending);
+    const operation = withIsolatedSchema(async () => {}, variables, { beforeDrop });
+    try {
+      await vi.waitFor(() => expect(beforeDrop).toHaveBeenCalledOnce());
+      expect(statements().filter((sql) => sql.includes('current_database'))).toHaveLength(1);
+      expect(statements().filter((sql) => sql.includes('pg_namespace'))).toHaveLength(1);
+      expect(statements()).not.toContain('ROLLBACK');
+      expect(statements().some((sql) => sql.startsWith('DROP'))).toBe(false);
+      complete();
+      await operation;
+      expect(statements().filter((sql) => sql.includes('current_database'))).toHaveLength(2);
+      expect(statements().filter((sql) => sql.includes('pg_namespace'))).toHaveLength(2);
+      expect(statements().filter((sql) => sql.startsWith('DROP')))
+        .toEqual(['DROP SCHEMA "' + name + '" CASCADE']);
+      expect(beforeDrop).toHaveBeenCalledOnce();
+      expect(fake.release).toHaveBeenCalledExactlyOnceWith(true);
+      expect(fake.end).toHaveBeenCalledOnce();
+    } finally { complete(); await operation; }
+  });
+
+  it.each(['throw', 'reject'])('blocks DROP on external %s and releases administrative resources', async (mode) => {
+    const beforeDrop = vi.fn((): Promise<void> => {
+      if (mode === 'throw') throw new Error('SENTINEL_PASSWORD_SQL_STACK_CAUSE');
+      return Promise.reject(new Error('SENTINEL_PASSWORD_SQL_STACK_CAUSE'));
+    });
+    const result = withIsolatedSchema(async () => {}, variables, { beforeDrop });
+    await expect(result).rejects.toThrow('ISOLATED_EXTERNAL_CLOSE_FAILED_SCHEMA_MAY_REMAIN');
+    await expect(result).rejects.not.toThrow('SENTINEL');
+    expect(beforeDrop).toHaveBeenCalledOnce();
+    expect(statements().some((sql) => sql.startsWith('DROP'))).toBe(false);
+    expect(statements().filter((sql) => sql.includes('pg_namespace'))).toHaveLength(1);
+    expect(fake.release).toHaveBeenCalledExactlyOnceWith(true);
+    expect(fake.end).toHaveBeenCalledOnce();
+  });
+
+  it('runs mandatory closure after callback failure and still cleans up when closure succeeds', async () => {
+    const beforeDrop = vi.fn(async () => {});
+    await expect(withIsolatedSchema(async () => {
+      throw new Error('SENTINEL_PRIVATE_CALLBACK');
+    }, variables, { beforeDrop })).rejects.toThrow('ISOLATED_SCHEMA_OPERATION_FAILED');
+    expect(beforeDrop).toHaveBeenCalledOnce();
+    expect(statements().filter((sql) => sql.startsWith('DROP'))).toHaveLength(1);
+    expect(fake.end).toHaveBeenCalledOnce();
+  });
+
+  it('retains the OID guard after successful external closure', async () => {
+    let reads = 0;
+    const previous = fake.query.getMockImplementation()!;
+    fake.query.mockImplementation(async (sql: string) =>
+      sql.includes('pg_namespace') ? { rows: [{ oid: ++reads === 1 ? 123 : 456 }] } : previous(sql));
+    const beforeDrop = vi.fn(async () => {});
+    await expect(withIsolatedSchema(async () => {}, variables, { beforeDrop }))
+      .rejects.toThrow('ISOLATED_SCHEMA_OWNERSHIP_LOST');
+    expect(beforeDrop).toHaveBeenCalledOnce();
+    expect(statements().some((sql) => sql.startsWith('DROP'))).toBe(false);
+    expect(fake.release).toHaveBeenCalledExactlyOnceWith(true);
+    expect(fake.end).toHaveBeenCalledOnce();
+  });
+
+  it('never adopts or removes a preexisting schema with the optional closure enabled', async () => {
+    const previous = fake.query.getMockImplementation()!;
+    fake.query.mockImplementation(async (sql: string) => {
+      if (sql.startsWith('CREATE SCHEMA')) throw new Error('synthetic collision');
+      return previous(sql);
+    });
+    const operation = vi.fn();
+    const beforeDrop = vi.fn(async () => {});
+    await expect(withIsolatedSchema(operation, variables, { beforeDrop }))
+      .rejects.toThrow('ISOLATED_SCHEMA_OPERATION_FAILED');
+    expect(operation).not.toHaveBeenCalled();
+    expect(beforeDrop).toHaveBeenCalledOnce();
+    expect(statements().some((sql) => sql.startsWith('DROP'))).toBe(false);
+    expect(fake.end).toHaveBeenCalledOnce();
+  });
+});
