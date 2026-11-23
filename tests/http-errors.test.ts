@@ -1,3 +1,5 @@
+import { DatabaseUnavailableHttpError, getDatabaseUnavailableHttpMetadata } from '../src/http-errors';
+import { getPostgresUnavailableMetadata } from '../src/postgres-task-repository';
 import { PostgresTaskRepository, TaskRepositoryError, isPostgresRepositoryUnavailable } from '../src/postgres-task-repository';
 import { PostgresQueryExecutor } from '../src/postgres-query-executor';
 import { PostgresOperationError, createPostgresAcquisitionTimeoutError } from '../src/postgres-errors';
@@ -235,9 +237,11 @@ describe('PostgreSQL persistence identity to HTTP translation without a database
     const repository = new PostgresTaskRepository({ query });
     const create = vi.spyOn(repository, 'create');
     const app = buildApp({ taskRepository: repository });
+    const transported = captureUnavailableMetadata(app);
     try {
       const response = await app.inject({ method: 'POST', url: '/tasks', payload: sensitiveInput });
       assertPublicFailure(response, 503);
+      expect(transported).toEqual([{ databaseCode: code }]);
       expect(create).toHaveBeenCalledExactlyOnceWith(sensitiveInput);
       expect(query).toHaveBeenCalledExactlyOnceWith(expectedInsert, ['SENSITIVE_SENTINEL', 'PARAM_SENTINEL']);
     } finally { await app.close(); }
@@ -259,9 +263,11 @@ describe('PostgreSQL persistence identity to HTTP translation without a database
     const repository = new PostgresTaskRepository({ query });
     const create = vi.spyOn(repository, 'create');
     const app = buildApp({ taskRepository: repository });
+    const transported = captureUnavailableMetadata(app);
     try {
       const response = await app.inject({ method: 'POST', url: '/tasks', payload: sensitiveInput });
       assertPublicFailure(response, 500);
+      expect(transported).toEqual([undefined]);
       expect(create).toHaveBeenCalledExactlyOnceWith(sensitiveInput);
       expect(query).toHaveBeenCalledExactlyOnceWith(expectedInsert, ['SENSITIVE_SENTINEL', 'PARAM_SENTINEL']);
     } finally { await app.close(); }
@@ -273,8 +279,10 @@ describe('PostgreSQL persistence identity to HTTP translation without a database
   ])('keeps invalid RETURNING result %# as 500 after one INSERT', async (result) => {
     const query = vi.fn().mockResolvedValue(result);
     const app = buildApp({ taskRepository: new PostgresTaskRepository({ query }) });
+    const transported = captureUnavailableMetadata(app);
     try {
       assertPublicFailure(await app.inject({ method: 'POST', url: '/tasks', payload: sensitiveInput }), 500);
+      expect(transported).toEqual([undefined]);
       expect(query).toHaveBeenCalledExactlyOnceWith(expectedInsert, ['SENSITIVE_SENTINEL', 'PARAM_SENTINEL']);
     } finally { await app.close(); }
   });
@@ -294,8 +302,10 @@ describe('PostgreSQL persistence identity to HTTP translation without a database
     const repository = repositoryMock();
     repository.create.mockRejectedValue(error);
     const app = buildApp({ taskRepository: repository });
+    const transported = captureUnavailableMetadata(app);
     try {
       assertPublicFailure(await app.inject({ method: 'POST', url: '/tasks', payload: sensitiveInput }), 500);
+      expect(transported).toEqual([undefined]);
       expect(repository.create).toHaveBeenCalledExactlyOnceWith(sensitiveInput);
       expect(isPostgresRepositoryUnavailable(error)).toBe(false);
     } finally { await app.close(); }
@@ -310,8 +320,10 @@ describe('PostgreSQL persistence identity to HTTP translation without a database
     const repository = repositoryMock();
     repository.create.mockRejectedValue(clone);
     const app = buildApp({ taskRepository: repository });
+    const transported = captureUnavailableMetadata(app);
     try {
       assertPublicFailure(await app.inject({ method: 'POST', url: '/tasks', payload: sensitiveInput }), 500);
+      expect(transported).toEqual([undefined]);
       expect(repository.create).toHaveBeenCalledOnce();
       expect(query).toHaveBeenCalledOnce();
     } finally { await app.close(); }
@@ -328,8 +340,10 @@ describe('PostgreSQL persistence identity to HTTP translation without a database
       status: 'pending', createdAt: date,
     });
     const app = buildApp({ taskRepository: repository });
+    const transported = captureUnavailableMetadata(app);
     try {
       assertPublicFailure(await app.inject({ method: 'POST', url: '/tasks', payload: sensitiveInput }), 500);
+      expect(transported).toEqual([undefined]);
       expect(repository.create).toHaveBeenCalledExactlyOnceWith(sensitiveInput);
     } finally { await app.close(); }
   });
@@ -345,6 +359,7 @@ describe('PostgreSQL persistence identity to HTTP translation without a database
     const repository = new PostgresTaskRepository(executor);
     const create = vi.spyOn(repository, 'create');
     const app = buildApp({ taskRepository: repository });
+    const transported = captureUnavailableMetadata(app);
     await app.ready();
     vi.useFakeTimers({ toFake: ['setTimeout', 'clearTimeout', 'performance'] });
     try {
@@ -353,6 +368,7 @@ describe('PostgreSQL persistence identity to HTTP translation without a database
       await acquisitionStarted;
       await vi.advanceTimersByTimeAsync(2500);
       assertPublicFailure(await pendingResponse, 503);
+      expect(transported).toEqual([{}]);
       expect(connect).toHaveBeenCalledOnce();
       expect(query).toHaveBeenCalledExactlyOnceWith(expectedInsert, ['SENSITIVE_SENTINEL', 'PARAM_SENTINEL']);
       expect(create).toHaveBeenCalledExactlyOnceWith(sensitiveInput);
@@ -362,5 +378,57 @@ describe('PostgreSQL persistence identity to HTTP translation without a database
       vi.useRealTimers();
       await app.close();
     }
+  });
+});
+
+
+// A test-only observer: captures controlled metadata without emitting any logs.
+function captureUnavailableMetadata(app: ReturnType<typeof buildApp>) {
+  const snapshots: Array<ReturnType<typeof getDatabaseUnavailableHttpMetadata>> = [];
+  app.addHook('onError', async (_request, _reply, error) => {
+    snapshots.push(getDatabaseUnavailableHttpMetadata(error));
+  });
+  return snapshots;
+}
+
+describe('private unavailability metadata snapshots', () => {
+  it.each(['ECONNREFUSED', '08006', '57P03', undefined])(
+    'transports only sanitized code %s despite later mutation or getters on the source', async (code) => {
+      const driverFailure = code === undefined ? createPostgresAcquisitionTimeoutError()
+        : Object.assign(new Error('SENSITIVE_SENTINEL'), { code, sql: 'SENSITIVE_SENTINEL', cause: new Error('SENSITIVE_SENTINEL') });
+      const query = vi.fn().mockRejectedValue(driverFailure);
+      const original = await new PostgresTaskRepository({ query }).create(sensitiveInput)
+        .catch((error: unknown) => error);
+      expect(isPostgresRepositoryUnavailable(original)).toBe(true);
+      const getter = vi.fn(() => { throw new Error('SENSITIVE_SENTINEL'); });
+      for (const key of ['code', 'databaseCode', 'category', 'message', 'cause', 'stack']) {
+        Object.defineProperty(original as object, key, { configurable: true, get: getter });
+      }
+      const httpError = new DatabaseUnavailableHttpError(original);
+      const expected = code === undefined ? {} : { databaseCode: code };
+      expect(getPostgresUnavailableMetadata(original)).toEqual(expected);
+      expect(getDatabaseUnavailableHttpMetadata(httpError)).toEqual(expected);
+      expect(Object.isFrozen(getDatabaseUnavailableHttpMetadata(httpError))).toBe(true);
+      expect(getDatabaseUnavailableHttpMetadata({ ...httpError })).toBeUndefined();
+      expect(getDatabaseUnavailableHttpMetadata(Object.assign(Object.create(DatabaseUnavailableHttpError.prototype), httpError)))
+        .toBeUndefined();
+      expect(JSON.stringify(getDatabaseUnavailableHttpMetadata(httpError))).not.toContain('SENSITIVE_SENTINEL');
+      expect(httpError.cause).toBeUndefined();
+      expect(Object.hasOwn(httpError, 'databaseCode')).toBe(false);
+      expect(getter).not.toHaveBeenCalled();
+      expect(query).toHaveBeenCalledOnce();
+    },
+  );
+
+  it.each([
+    { databaseCode: 'ECONNREFUSED', category: 'unavailable' },
+    new TaskRepositoryError('TASK_REPOSITORY_QUERY_FAILED', 'ECONNREFUSED', 'unavailable'),
+    new PostgresOperationError('unavailable', 'ECONNREFUSED'),
+    createPostgresAcquisitionTimeoutError(),
+    Object.defineProperty({}, 'databaseCode', { get: () => { throw new Error('SENSITIVE_SENTINEL'); } }),
+    null,
+  ])('does not create trusted HTTP metadata from forged or unrelated source %#', (source) => {
+    expect(getPostgresUnavailableMetadata(source)).toBeUndefined();
+    expect(getDatabaseUnavailableHttpMetadata(new DatabaseUnavailableHttpError(source))).toBeUndefined();
   });
 });

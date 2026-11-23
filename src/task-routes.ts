@@ -29,7 +29,7 @@ export function registerTaskRoutes(app: FastifyInstance, repository: TaskReposit
     try {
       task = await repository.create(input);
     } catch (error) {
-      if (isPostgresRepositoryUnavailable(error)) throw new DatabaseUnavailableHttpError();
+      if (isPostgresRepositoryUnavailable(error)) throw new DatabaseUnavailableHttpError(error);
       throw new InternalHttpError();
     }
 

@@ -13,6 +13,13 @@ export type TaskRepositoryErrorCode =
 
 // Only the query-failure boundary below registers final repository errors.
 const unavailableRepositoryErrors = new WeakSet<object>();
+export interface PostgresUnavailableMetadata { readonly databaseCode?: string; }
+const unavailableMetadata = new WeakMap<object, Readonly<PostgresUnavailableMetadata>>();
+
+/** Reads only a private snapshot; never inspects properties of the supplied error. */
+export function getPostgresUnavailableMetadata(error: unknown): Readonly<PostgresUnavailableMetadata> | undefined {
+  return typeof error === 'object' && error !== null ? unavailableMetadata.get(error) : undefined;
+}
 
 export function isPostgresRepositoryUnavailable(error: unknown): boolean {
   return typeof error === 'object' && error !== null && unavailableRepositoryErrors.has(error);
@@ -83,7 +90,12 @@ export class PostgresTaskRepository implements TaskRepository {
       // Do not retain cause, raw driver messages, SQL, parameters or connection settings.
       const failure = classifyPostgresFailure(error);
       const repositoryError = new TaskRepositoryError('TASK_REPOSITORY_QUERY_FAILED', failure.databaseCode, failure.category);
-      if (failure.category === 'unavailable') unavailableRepositoryErrors.add(repositoryError);
+      if (failure.category === 'unavailable') {
+        unavailableRepositoryErrors.add(repositoryError);
+        unavailableMetadata.set(repositoryError, Object.freeze(
+          failure.databaseCode === undefined ? {} : { databaseCode: failure.databaseCode },
+        ));
+      }
       throw repositoryError;
     }
     return mapResult(result);
