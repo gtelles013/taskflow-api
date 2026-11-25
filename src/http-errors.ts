@@ -3,6 +3,8 @@ import type { FastifyInstance, FastifyRequest } from 'fastify';
 import { getPostgresUnavailableMetadata } from './postgres-task-repository';
 import type { PostgresUnavailableMetadata } from './postgres-task-repository';
 
+import { TaskQueryValidationError } from './task-query';
+
 type PublicField = 'title' | 'description' | 'body';
 
 const detailMessages = {
@@ -73,6 +75,17 @@ export function registerHttpErrorHandler(app: FastifyInstance): void {
       recordHttpFailure(request, 503, getDatabaseUnavailableHttpMetadata(error));
       return reply.code(503).send({
         error: { code: 'DATABASE_UNAVAILABLE', message: 'Database unavailable' },
+      });
+    }
+
+    if (error instanceof TaskQueryValidationError) {
+      recordHttpFailure(request, 400);
+      return reply.code(400).send({
+        error: {
+          code: 'VALIDATION_ERROR',
+          message: 'Invalid task query',
+          details: [{ field: 'query', message: 'Invalid query parameters' }],
+        },
       });
     }
 

@@ -217,3 +217,36 @@ describe('operational server composition without PostgreSQL', () => {
     expect(s.onFailure).toHaveBeenCalledOnce();
   });
 });
+
+describe('listing with the runtime pool', () => {
+  it.each([false, true])('releases the client and closes the pool once, query failure=%s', async (fails) => {
+    const s = setup();
+    if (fails) s.client.query.mockRejectedValue(new Error(sensitive));
+    const runtime = await startServer(s.options);
+    expect(runtime).toBeDefined();
+    try {
+      expect(s.pool.connect).not.toHaveBeenCalled();
+      const response = await runtime!.app.inject({ method: 'GET', url: '/tasks?limit=2&offset=3' });
+      expect(response.statusCode).toBe(fails ? 500 : 200);
+      if (fails) {
+        expect(response.json()).toEqual({ error: { code: 'INTERNAL_ERROR', message: 'Internal server error' } });
+      } else {
+        expect(response.json()).toEqual({
+          items: [{ id: row.id, title: row.title, description: null, status: 'pending', createdAt: row.created_at.toISOString() }],
+          nextOffset: null, truncated: false,
+        });
+      }
+      expect(s.pool.connect).toHaveBeenCalledOnce();
+      expect(s.client.query).toHaveBeenCalledExactlyOnceWith(
+        expect.stringContaining('FROM "public".tasks ORDER BY created_at DESC, id DESC'), ['3', '3'],
+      );
+      expect(s.client.release).toHaveBeenCalledExactlyOnceWith(fails ? expect.any(Error) : undefined);
+      expect(s.client.removeListener).toHaveBeenCalledOnce();
+    } finally {
+      await runtime?.shutdown();
+      await runtime?.shutdown();
+    }
+    expect(s.order).toEqual(['app', 'pool']);
+    expect(s.pool.end).toHaveBeenCalledOnce();
+  });
+});

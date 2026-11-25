@@ -50,7 +50,11 @@ export async function startServer(options: ServerOptions = {}) {
     const repository = new PostgresTaskRepository(new PostgresQueryExecutor(pool));
     app = (options.buildApplication ?? buildApp)({
       logger: true,
-      taskRepository: { create: (input) => repository.create(input), close: closePool },
+      taskRepository: {
+        create: (input) => repository.create(input),
+        list: (input) => repository.list(input),
+        close: closePool,
+      },
     });
     signals.on('SIGINT', handleSignal);
     signals.on('SIGTERM', handleSignal);

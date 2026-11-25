@@ -1,4 +1,4 @@
-import type { Task, TaskRepository } from './task-repository';
+import type { Task, TaskListInput, TaskListResult, TaskRepository } from './task-repository';
 import { classifyPostgresFailure } from './postgres-errors';
 import type { PostgresFailureCategory } from './postgres-errors';
 
@@ -44,12 +44,15 @@ function quoteSchema(schema: unknown): string {
   return '"' + schema + '"';
 }
 
-function mapResult(result: unknown): Task {
+function readRows(result: unknown): unknown[] {
   if (typeof result !== 'object' || result === null ||
-      !('rows' in result) || !Array.isArray(result.rows) || result.rows.length !== 1) {
+      !('rows' in result) || !Array.isArray(result.rows)) {
     throw new TaskRepositoryError('TASK_REPOSITORY_RESULT_INVALID');
   }
-  const row: unknown = result.rows[0];
+  return result.rows;
+}
+
+function mapRow(row: unknown): Task {
   if (typeof row !== 'object' || row === null ||
       !('id' in row) || typeof row.id !== 'string' ||
       !/^[a-f0-9]{8}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{12}$/i.test(row.id) ||
@@ -75,17 +78,35 @@ function mapResult(result: unknown): Task {
  */
 export class PostgresTaskRepository implements TaskRepository {
   private readonly insertSql: string;
+  private readonly listSql: string;
 
   constructor(private readonly executor: TaskQueryExecutor, schema: string = 'public') {
     const qualifiedSchema = quoteSchema(schema);
     this.insertSql = 'INSERT INTO ' + qualifiedSchema + '.tasks (title, description) ' +
       'VALUES ($1, $2) RETURNING id, title, description, status, created_at';
+    this.listSql = 'SELECT id, title, description, status, created_at FROM ' + qualifiedSchema +
+      '.tasks ORDER BY created_at DESC, id DESC LIMIT $1::integer OFFSET $2::integer';
   }
 
   async create(input: { title: string; description: string | null }): Promise<Task> {
-    let result: unknown;
+    const rows = readRows(await this.query(this.insertSql, [input.title, input.description]));
+    if (rows.length !== 1) throw new TaskRepositoryError('TASK_REPOSITORY_RESULT_INVALID');
+    return mapRow(rows[0]);
+  }
+
+  async list({ limit, offset }: TaskListInput): Promise<TaskListResult> {
+    const rows = readRows(await this.query(this.listSql, [String(limit + 1), String(offset)]));
+    if (rows.length > limit + 1) throw new TaskRepositoryError('TASK_REPOSITORY_RESULT_INVALID');
+
+    const items = Array.from(rows, mapRow);
+    const hasMore = items.length > limit;
+    if (hasMore) items.pop();
+    return { items, hasMore };
+  }
+
+  private async query(text: string, values: (string | null)[]): Promise<unknown> {
     try {
-      result = await this.executor.query(this.insertSql, [input.title, input.description]);
+      return await this.executor.query(text, values);
     } catch (error) {
       // Do not retain cause, raw driver messages, SQL, parameters or connection settings.
       const failure = classifyPostgresFailure(error);
@@ -98,6 +119,5 @@ export class PostgresTaskRepository implements TaskRepository {
       }
       throw repositoryError;
     }
-    return mapResult(result);
   }
 }

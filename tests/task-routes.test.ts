@@ -20,6 +20,7 @@ function returnedTask(overrides: Partial<Task> = {}): Task {
 function mockRepository(task = returnedTask()) {
   return {
     create: vi.fn<TaskRepository['create']>().mockResolvedValue(task),
+    list: vi.fn<TaskRepository['list']>(),
     close: vi.fn(async () => {}),
   };
 }

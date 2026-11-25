@@ -6,6 +6,7 @@ describe('application factory', () => {
   it('handles an injected request without opening a listening socket', async () => {
     const repository: TaskRepository = {
       create: vi.fn(),
+      list: vi.fn(),
       close: vi.fn(async () => {}),
     };
     const app = buildApp({ taskRepository: repository });
@@ -43,7 +44,7 @@ describe('application factory', () => {
   });
 
   it('keeps injected repositories isolated between app instances', async () => {
-    const repository: TaskRepository = { create: vi.fn() };
+    const repository: TaskRepository = { create: vi.fn(), list: vi.fn() };
     const first = buildApp({ taskRepository: repository });
     const second = buildApp();
     try {

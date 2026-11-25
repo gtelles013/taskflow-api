@@ -258,3 +258,46 @@ describe('normalization of previously classified failures', () => {
     expect(getter).not.toHaveBeenCalled();
   });
 });
+
+describe('PostgresTaskRepository.list', () => {
+  it('uses a single qualified parameterized SELECT and hides the validated probe row', async () => {
+    const first = { ...row(), title: 'First', description: '  preserved  ' };
+    const second = { ...row(), title: 'Second', description: '' };
+    const probe = { ...row(), title: 'Probe' };
+    query.mockResolvedValue({ rows: [first, second, probe] });
+    const result = await new PostgresTaskRepository(executor, 'taskflow_test_example')
+      .list({ limit: 2, offset: 100000 });
+
+    expect(query).toHaveBeenCalledExactlyOnceWith(
+      'SELECT id, title, description, status, created_at FROM "taskflow_test_example".tasks ' +
+      'ORDER BY created_at DESC, id DESC LIMIT $1::integer OFFSET $2::integer',
+      ['3', '100000'],
+    );
+    expect(result).toEqual({
+      items: [
+        { id: first.id, title: first.title, description: first.description, status: 'pending', createdAt: instant },
+        { id: second.id, title: second.title, description: second.description, status: 'pending', createdAt: instant },
+      ],
+      hasMore: true,
+    });
+    expect(result.items[0]?.createdAt).not.toBe(first.created_at);
+  });
+
+  it.each([0, 1, 2])('returns %i rows without continuation when no probe exists', async (size) => {
+    query.mockResolvedValue({ rows: Array.from({ length: size }, row) });
+    const result = await new PostgresTaskRepository(executor).list({ limit: 2, offset: 0 });
+    expect(result.items).toHaveLength(size);
+    expect(result.hasMore).toBe(false);
+  });
+
+  it.each([
+    undefined, { rows: null }, { rows: [row(), null] },
+    { rows: [row(), row(), { ...row(), created_at: new Date(NaN) }] },
+    { rows: [row(), row(), row(), row()] }, { rows: Array(3) },
+  ])('rejects invalid results, including an invalid probe, without a retry %#', async (result) => {
+    query.mockResolvedValue(result);
+    await expect(new PostgresTaskRepository(executor).list({ limit: 2, offset: 0 }))
+      .rejects.toMatchObject({ code: 'TASK_REPOSITORY_RESULT_INVALID' });
+    expect(query).toHaveBeenCalledOnce();
+  });
+});
