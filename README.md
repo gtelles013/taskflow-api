@@ -1,6 +1,6 @@
 # TaskFlow API
 
-Base Node.js/TypeScript com Fastify, driver pg e Vitest. A infraestrutura PostgreSQL e a migracao versionada 0001 estao implementadas. A migracao foi aplicada em taskflow_test.public, onde a tabela tasks existe; nao ha comprovacao de aplicacao em taskflow_dev. O repositorio PostgreSQL foi implementado e validado por seis testes reais em schemas temporarios de taskflow_test. A rota POST /tasks esta implementada na fabrica quando taskRepository e injetado. O servidor atual inicia sem essa dependencia e sem conexao com PostgreSQL; npm start ainda nao disponibiliza POST /tasks.
+Base Node.js/TypeScript com Fastify, driver pg e Vitest. A infraestrutura PostgreSQL e a migracao versionada 0001 estao implementadas. A migracao foi aplicada em taskflow_test.public, onde a tabela tasks existe; nao ha comprovacao de aplicacao em taskflow_dev. O repositorio PostgreSQL foi implementado e validado por seis testes reais em schemas temporarios de taskflow_test. O entrypoint cria o pool PostgreSQL e injeta o repositorio na fabrica Fastify. A rota POST /tasks fica disponivel quando o servidor inicia com a configuracao descrita abaixo.
 
 Contrato e exemplos HTTP: [Criacao de tarefas](docs/task-creation.md).
 
@@ -33,7 +33,7 @@ set PORT=3001
 npm.cmd run dev
 ```
 
-Ctrl+C encerra o servidor. A fabrica em src/app.ts nao chama listen; src/server.ts e o entrypoint. A fabrica aceita taskRepository opcional e fecha seu metodo close, quando fornecido, junto com a aplicacao. O repositorio PostgreSQL foi validado por integracao real e ainda nao esta conectado ao entrypoint. Nao ha fallback em memoria.
+O comando npm.cmd start executa dist/server.js, gerado pelo build. O entrypoint src/server.ts chama startServer, que cria o pool PostgreSQL, monta o repositorio com o executor de consultas e o injeta na fabrica em src/app.ts antes de chamar listen. O pool abre conexoes sob demanda para persistir tarefas. SIGINT (Ctrl+C) e SIGTERM encerram a aplicacao e o pool.
 
 ## Configuracao do PostgreSQL
 
@@ -56,7 +56,7 @@ if not exist .env copy .env.example .env
 
 Edite .env localmente no seu editor, substituindo CHANGE_ME pela senha correta. Nao cole senhas em comandos, logs ou conversas. Caracteres reservados da senha devem ser codificados para URL (percent-encoding). .env e ignorado pelo Git; .env.example contem somente valores ilustrativos e pode ser versionado.
 
-O projeto nao usa dotenv nem carrega .env automaticamente. Os scripts npm atuais continuam usando o ambiente herdado do CMD. Para carregar .env explicitamente, use o recurso nativo do Node:
+Nos comandos com --env-file=.env, o Node carrega o arquivo explicitamente e preserva as variaveis ja definidas no ambiente. A suite unitaria desativa a descoberta automatica de arquivos de ambiente pelo Vite com envDir: false. Nas configuracoes de integracao, o Vite pode descobrir esses arquivos, inclusive sem --env-file=.env. Entre as variaveis que o Vite expoe pelo prefixo configurado, os valores ja definidos em process.env tem precedencia. Para carregar .env explicitamente ao iniciar a aplicacao, use o recurso nativo do Node:
 
 ```bat
 node --env-file=.env --import tsx --watch src/server.ts
@@ -75,7 +75,7 @@ set "DATABASE_URL="
 set "TEST_DATABASE_URL="
 ```
 
-Use o carregamento explicito acima para evitar digitar credenciais na linha de comando. O servidor ainda nao consome essas URLs nem conecta ao banco. A fabrica de pools e o executor de migracoes ja estao implementados; a migracao 0001 foi aplicada em taskflow_test.public. Migracoes nao sao executadas automaticamente no startup. A suite de verificacao read-only esta descrita abaixo.
+Use o carregamento explicito acima para evitar digitar credenciais na linha de comando. Para iniciar o servidor, DATABASE_URL deve estar definida para taskflow_dev em localhost:5432, com o usuario taskflow_app e senha. Para persistir tarefas, o PostgreSQL deve estar acessivel e a migracao 0001 deve ter sido aplicada nesse banco. A fabrica de pools e o executor de migracoes ja estao implementados; a migracao 0001 foi aplicada em taskflow_test.public. Migracoes nao sao executadas automaticamente no startup. A suite de verificacao read-only esta descrita abaixo.
 
 ### Validacao sem revelar credenciais
 
@@ -102,7 +102,9 @@ Vitest usa Fastify.inject sem abrir porta. A suite verifica injeção e isolamen
 
 A fabrica em src/database.ts recebe explicitamente development ou integration. Ela usa somente DATABASE_URL ou TEST_DATABASE_URL, respectivamente, sem fallback. Antes de criar o pool, exige PostgreSQL local em localhost:5432, usuario taskflow_app e banco taskflow_dev ou taskflow_test conforme o ambiente. Parametros extras na URL sao rejeitados para impedir substituicao do destino.
 
-O timeout de conexao e 3000 ms; conexoes ociosas expiram apos 1000 ms. O pool de integracao tem no maximo uma conexao e sessoes read-only, com statement timeout de 3000 ms. withDatabasePool executa pool.end() em finally; pool.query gerencia a liberacao dos clientes. Ao usar a fabrica diretamente, o chamador deve fechar o pool em finally. O servidor ainda nao instancia o pool.
+O timeout de conexao e 3000 ms e conexoes ociosas expiram apos 1000 ms. Os pools de integracao definidos em src/database.ts tem no maximo uma conexao por pool e statement timeout de 3000 ms. O diagnostico usa sessoes read-only via withDatabasePool, que executa pool.end() em finally. pool.query gerencia a liberacao dos clientes. Ao usar a fabrica diretamente, o chamador deve fechar o pool em finally.
+
+O helper de isolamento e o executor de migracoes usam pools com escrita habilitada para criar, migrar e limpar os schemas descartaveis da propria execucao. Os testes HTTP de persistencia real usam um pool de escrita separado para inserir no schema proprio. A suite qualifica o SQL de persistencia e migracao com o schema descartavel e fecha o pool HTTP antes de remover esse schema.
 
 No CMD:
 
@@ -113,15 +115,15 @@ npm.cmd test
 npm.cmd run test:integration
 ```
 
-npm.cmd test e test:watch usam apenas testes unitarios, com pg simulado nos testes da fabrica; nao precisam de banco ou .env. test:integration carrega .env explicitamente via Node e executa somente tests/integration. A verificacao exige TEST_DATABASE_URL e confirma current_database() = taskflow_test, server_encoding = UTF8 e transaction_read_only = on. Nao cria tabelas nem executa migracoes ou escritas.
+npm.cmd test e npm.cmd run test:watch executam a suite unitaria e HTTP em memoria via Fastify.inject. Os acessos ao PostgreSQL sao simulados, e a configuracao unitaria desativa o carregamento automatico de arquivos .env pelo Vite.
+
+npm.cmd run test:integration carrega .env explicitamente via Node e executa os dois testes em tests/integration:
+
+- database.test.ts exige TEST_DATABASE_URL e confirma uma conexao real a taskflow_test, com server_encoding = UTF8 e transaction_read_only = on.
+- postgres-unavailability.test.ts usa o driver pg real contra um servidor TCP proprio em loopback e porta efemera. O servidor deixa o handshake sem resposta, e o teste verifica HTTP 503 sem conectar a uma instancia PostgreSQL.
+
+A suite de integracao real em tests/schema-integration usa vitest.schema-integration.config.mts e roda separadamente de test:integration. Ela usa TEST_DATABASE_URL para aplicar migracoes e validar persistencia em schemas descartaveis criados e removidos pela propria execucao.
 
 Nao ha fallback para DATABASE_URL: ausencia, URL invalida ou destino diferente falham antes de construir o pool. Erros de conexao da integracao sao reportados sem URL, senha ou mensagem bruta do driver. Variaveis previamente definidas no CMD continuam tendo precedencia sobre .env.
 
-Para conferir a falha sem configurar a variavel (nao carrega .env), em um CMD separado:
-
-```bat
-set "TEST_DATABASE_URL="
-node node_modules/vitest/vitest.mjs run --config vitest.integration.config.mts
-```
-
-O resultado esperado e falha com TEST_DATABASE_URL is required, sem tentativa de conexao. A verificacao e somente de configuracao/conexao. A migracao 0001 e a tabela tasks ja estao disponiveis em taskflow_test.public. Os testes de migracao em schemas isolados foram executados separadamente; o repositorio PostgreSQL tambem foi validado por seis testes reais em schemas temporarios. POST /tasks existe na fabrica com repositorio injetado; sua composicao no entrypoint permanece pendente.
+O [teste unitario de configuracao do banco](tests/database.test.ts#L28) verifica a ausencia de TEST_DATABASE_URL com pg simulado e variaveis fornecidas pelo proprio teste. Mesmo com DATABASE_URL presente, a configuracao de integracao falha com TEST_DATABASE_URL is required antes de criar um pool. A omissao de --env-file=.env ainda permite que o Vite descubra arquivos de ambiente na configuracao de integracao. Sem filtro, essa configuracao tambem seleciona o teste TCP controlado. A migracao 0001 e a tabela tasks ja estao disponiveis em taskflow_test.public. Os testes de migracao em schemas isolados foram executados separadamente; o repositorio PostgreSQL tambem foi validado por seis testes reais em schemas temporarios.
