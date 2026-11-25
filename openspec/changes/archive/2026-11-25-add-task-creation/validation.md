@@ -50,7 +50,7 @@ Os caminhos abaixo sao relativos a raiz do repositorio. Os testes HTTP usam `Fas
 - Tres casos HTTP e um caso de repositorio confirmaram independentemente a ausencia dos schemas com consultas a `pg_namespace` apos o teardown. Nos demais casos, a evidencia de remocao deriva do DROP bem-sucedido pelo helper. Os nomes dos schemas nao foram registrados.
 - O TCP demonstra handshake indisponivel em endpoint proprio. Nenhuma instancia PostgreSQL foi desligada. A perda de resposta apos INSERT confirmado foi simulada no executor, sem interrupcao fisica da conexao.
 - A aprovacao da suite unitaria demonstra o funcionamento com a configuracao corrigida. Ela nao constitui monitoramento independente de acessos a arquivos de ambiente.
-- O [README](../../../README.md) descreve o script de integracao como verificacao read-only, mas a configuracao desse script tambem descobre o teste TCP. Os comandos filtrados da 6.3C preservaram o escopo. O README permanece pendente de ajuste fora desta etapa.
+- O [README](../../../../README.md) descreve o script de integracao como verificacao read-only, mas a configuracao desse script tambem descobre o teste TCP. Os comandos filtrados da 6.3C preservaram o escopo. O README permanece pendente de ajuste fora desta etapa.
 
 ## Conclusao tecnica
 
@@ -85,9 +85,9 @@ A configuracao unitaria manteve envDir: false e excluiu as suites de integracao.
 | Preservacao de Unicode valido | 4 | 5 |
 | Total | 36 | 16 |
 
-- Os [testes unitarios](../../../tests/task-validation.test.ts#L65) confirmam o campo de TaskValidationError para NUL em ambos os campos, substitutos altos e baixos isolados, pares invalidos e unidades isoladas adjacentes a pares validos.
-- Os [testes HTTP em memoria](../../../tests/task-routes.test.ts#L475) confirmam o valor decodificado no validador, HTTP 400 com o envelope VALIDATION_ERROR completo e o campo correto, zero chamadas ao repositorio e ausencia do conteudo invalido na resposta. O [NUL literal sem escape](../../../tests/task-routes.test.ts#L521) recebe erro de corpo antes da validacao de campo.
-- Os [casos validos](../../../tests/task-validation.test.ts#L99) e os [casos HTTP positivos](../../../tests/task-routes.test.ts#L546) preservam pares validos, U+10000, U+10FFFF, emojis, sequencias combinantes e U+FFFD explicito. Os testes unitarios tambem cobrem tabulacao e quebra de linha internas ja permitidas. A suite completa preservou limites, trim, descricao vazia, espacos e omissao. Os novos casos HTTP confirmam o fechamento das aplicacoes Fastify e dos repositorios simulados.
+- Os [testes unitarios](../../../../tests/task-validation.test.ts#L65) confirmam o campo de TaskValidationError para NUL em ambos os campos, substitutos altos e baixos isolados, pares invalidos e unidades isoladas adjacentes a pares validos.
+- Os [testes HTTP em memoria](../../../../tests/task-routes.test.ts#L475) confirmam o valor decodificado no validador, HTTP 400 com o envelope VALIDATION_ERROR completo e o campo correto, zero chamadas ao repositorio e ausencia do conteudo invalido na resposta. O [NUL literal sem escape](../../../../tests/task-routes.test.ts#L521) recebe erro de corpo antes da validacao de campo.
+- Os [casos validos](../../../../tests/task-validation.test.ts#L99) e os [casos HTTP positivos](../../../../tests/task-routes.test.ts#L546) preservam pares validos, U+10000, U+10FFFF, emojis, sequencias combinantes e U+FFFD explicito. Os testes unitarios tambem cobrem tabulacao e quebra de linha internas ja permitidas. A suite completa preservou limites, trim, descricao vazia, espacos e omissao. Os novos casos HTTP confirmam o fechamento das aplicacoes Fastify e dos repositorios simulados.
 
 ### Etapa 8.7 - HTTP com PostgreSQL real
 
@@ -97,13 +97,13 @@ O comando abaixo foi executado uma vez.
 node --env-file=.env node_modules/vitest/vitest.mjs run --config vitest.schema-integration.config.mts tests/schema-integration/task-routes.test.ts --bail=1
 ```
 
-O Vitest reportou 1 arquivo, 3 testes aprovados, zero falhas e zero ignorados, em 2,14 s. O codigo de saida foi 0. Pelas assercoes e pelo fluxo dos [tres testes](../../../tests/schema-integration/task-routes.test.ts#L113), foram 15 requisicoes via Fastify.inject, 9 respostas HTTP 201, 6 respostas HTTP 400 e 9 registros persistidos e conferidos. Essas quantidades decorrem dos casos aprovados. O runner reportou apenas arquivos e testes.
+O Vitest reportou 1 arquivo, 3 testes aprovados, zero falhas e zero ignorados, em 2,14 s. O codigo de saida foi 0. Pelas assercoes e pelo fluxo dos [tres testes](../../../../tests/schema-integration/task-routes.test.ts#L113), foram 15 requisicoes via Fastify.inject, 9 respostas HTTP 201, 6 respostas HTTP 400 e 9 registros persistidos e conferidos. Essas quantidades decorrem dos casos aprovados. O runner reportou apenas arquivos e testes.
 
-A [comparacao com as linhas persistidas](../../../tests/schema-integration/task-routes.test.ts#L79) confirmou UUID v4, status pending, createdAt UTC ISO 8601 e o instante armazenado. Os testes confirmaram emojis, sequencias combinantes, contagem por pontos de codigo, trim do titulo, SQL NULL para descricao omitida, descricao vazia e espacos preservados, e titulos duplicados com UUIDs distintos. As seis entradas acima dos limites mantiveram a contagem de linhas.
+A [comparacao com as linhas persistidas](../../../../tests/schema-integration/task-routes.test.ts#L79) confirmou UUID v4, status pending, createdAt UTC ISO 8601 e o instante armazenado. Os testes confirmaram emojis, sequencias combinantes, contagem por pontos de codigo, trim do titulo, SQL NULL para descricao omitida, descricao vazia e espacos preservados, e titulos duplicados com UUIDs distintos. As seis entradas acima dos limites mantiveram a contagem de linhas.
 
 TEST_DATABASE_URL foi obrigatoria, sem fallback. O destino validado foi localhost:5432/taskflow_test, com usuario taskflow_app. O codigo confirma current_database() antes das escritas. O carregamento de .env ficou restrito ao comando e a resolucao de configuracao autorizados, sem leitura direta ou exposicao de credenciais.
 
-O [helper](../../../tests/support/isolated-schema.ts#L63) cria schemas proprios e aleatorios, sem CREATE SCHEMA IF NOT EXISTS. O SQL de persistencia e migracao e qualificado pelo schema proprio. As sessoes pertinentes usam search_path restrito a pg_catalog. O pool HTTP e separado do administrativo. A [aplicacao e o pool HTTP](../../../tests/schema-integration/task-routes.test.ts#L59) fecham antes do DROP. O helper revalida banco, nome e OID, remove o schema, libera o cliente e encerra o pool administrativo. Os tres casos criaram e removeram tres schemas e passaram por [tres verificacoes independentes de ausencia](../../../tests/schema-integration/task-routes.test.ts#L68). Os nomes nao foram anotados. O runner nao emitiu avisos de handles residuais, e nenhuma consulta adicional foi executada fora da suite.
+O [helper](../../../../tests/support/isolated-schema.ts#L63) cria schemas proprios e aleatorios, sem CREATE SCHEMA IF NOT EXISTS. O SQL de persistencia e migracao e qualificado pelo schema proprio. As sessoes pertinentes usam search_path restrito a pg_catalog. O pool HTTP e separado do administrativo. A [aplicacao e o pool HTTP](../../../../tests/schema-integration/task-routes.test.ts#L59) fecham antes do DROP. O helper revalida banco, nome e OID, remove o schema, libera o cliente e encerra o pool administrativo. Os tres casos criaram e removeram tres schemas e passaram por [tres verificacoes independentes de ausencia](../../../../tests/schema-integration/task-routes.test.ts#L68). Os nomes nao foram anotados. O runner nao emitiu avisos de handles residuais, e nenhuma consulta adicional foi executada fora da suite.
 
 ### Consolidacao e limites
 
