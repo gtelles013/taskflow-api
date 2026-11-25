@@ -1,8 +1,8 @@
 # TaskFlow API
 
-Base Node.js/TypeScript com Fastify, driver pg e Vitest. A infraestrutura PostgreSQL e a migracao versionada 0001 estao implementadas. A migracao foi aplicada em taskflow_test.public, onde a tabela tasks existe; nao ha comprovacao de aplicacao em taskflow_dev. O repositorio PostgreSQL foi implementado e validado por seis testes reais em schemas temporarios de taskflow_test. O entrypoint cria o pool PostgreSQL e injeta o repositorio na fabrica Fastify. A rota POST /tasks fica disponivel quando o servidor inicia com a configuracao descrita abaixo.
+Base Node.js/TypeScript com Fastify, driver pg e Vitest. A infraestrutura PostgreSQL e a migracao versionada 0001 estao implementadas. A migracao foi aplicada em taskflow_test.public, onde a tabela tasks existe; nao ha comprovacao de aplicacao em taskflow_dev. O repositorio PostgreSQL foi implementado e validado por seis testes reais em schemas temporarios de taskflow_test. O entrypoint cria o pool PostgreSQL e injeta o repositorio na fabrica Fastify. As rotas POST /tasks e GET /tasks ficam disponiveis quando o servidor inicia com a configuracao descrita abaixo.
 
-Contrato e exemplos HTTP: [Criacao de tarefas](docs/task-creation.md).
+Contratos e exemplos HTTP: [Criacao de tarefas](docs/task-creation.md) e [Listagem de tarefas](docs/task-listing.md).
 
 ## Requisitos
 
@@ -33,7 +33,7 @@ set PORT=3001
 npm.cmd run dev
 ```
 
-O comando npm.cmd start executa dist/server.js, gerado pelo build. O entrypoint src/server.ts chama startServer, que cria o pool PostgreSQL, monta o repositorio com o executor de consultas e o injeta na fabrica em src/app.ts antes de chamar listen. O pool abre conexoes sob demanda para persistir tarefas. SIGINT (Ctrl+C) e SIGTERM encerram a aplicacao e o pool.
+O comando npm.cmd start executa dist/server.js, gerado pelo build. O entrypoint src/server.ts chama startServer, que cria o pool PostgreSQL, monta o repositorio com o executor de consultas e o injeta na fabrica em src/app.ts antes de chamar listen. O pool abre conexoes sob demanda para criar e listar tarefas. SIGINT (Ctrl+C) e SIGTERM encerram a aplicacao e o pool.
 
 ## Configuracao do PostgreSQL
 
@@ -122,7 +122,7 @@ npm.cmd run test:integration carrega .env explicitamente via Node e executa os d
 - database.test.ts exige TEST_DATABASE_URL e confirma uma conexao real a taskflow_test, com server_encoding = UTF8 e transaction_read_only = on.
 - postgres-unavailability.test.ts usa o driver pg real contra um servidor TCP proprio em loopback e porta efemera. O servidor deixa o handshake sem resposta, e o teste verifica HTTP 503 sem conectar a uma instancia PostgreSQL.
 
-A suite de integracao real em tests/schema-integration usa vitest.schema-integration.config.mts e roda separadamente de test:integration. Ela usa TEST_DATABASE_URL para aplicar migracoes e validar persistencia em schemas descartaveis criados e removidos pela propria execucao.
+A suite de integracao real em tests/schema-integration usa vitest.schema-integration.config.mts e roda separadamente de test:integration. Ela usa TEST_DATABASE_URL para aplicar migracoes e validar persistencia em schemas descartaveis criados e removidos pela propria execucao. Os cenarios de GET /tasks incluem ordenacao, paginacao e preservacao dos registros.
 
 Nao ha fallback para DATABASE_URL: ausencia, URL invalida ou destino diferente falham antes de construir o pool. Erros de conexao da integracao sao reportados sem URL, senha ou mensagem bruta do driver. Variaveis previamente definidas no CMD continuam tendo precedencia sobre .env.
 

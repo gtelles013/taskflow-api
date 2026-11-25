@@ -19,7 +19,7 @@ function returnedTask(title = 'Example'): Task {
   };
 }
 function repositoryMock() {
-  return { create: vi.fn<TaskRepository['create']>().mockResolvedValue(returnedTask()), close: vi.fn(async () => {}) };
+  return { create: vi.fn<TaskRepository['create']>().mockResolvedValue(returnedTask()), list: vi.fn<TaskRepository['list']>(), close: vi.fn(async () => {}) };
 }
 const secret = 'SENSITIVE_LOG_SENTINEL';
 function expectNoSensitiveLogs(text: string) {

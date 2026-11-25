@@ -26,7 +26,7 @@ function repositoryMock() {
     id: '550e8400-e29b-41d4-a716-446655440000', title: 'Example', description: null,
     status: 'pending', createdAt: new Date('2026-11-19T15:30:45.123Z'),
   };
-  return { create: vi.fn<TaskRepository['create']>().mockResolvedValue(task), close: vi.fn(async () => {}) };
+  return { create: vi.fn<TaskRepository['create']>().mockResolvedValue(task), list: vi.fn<TaskRepository['list']>(), close: vi.fn(async () => {}) };
 }
 
 function expectSanitized(body: string) {
