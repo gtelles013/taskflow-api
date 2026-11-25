@@ -61,3 +61,49 @@ describe('description validation', () => {
     expect(() => validateTaskInput({ title: 'Example', description })).toThrow(TaskValidationError);
   });
 });
+
+describe('Unicode text integrity', () => {
+  const invalidText = [
+    { name: 'leading NUL', value: '\u0000text' },
+    { name: 'embedded NUL', value: 'a\u0000b' },
+    { name: 'trailing NUL', value: 'text\u0000' },
+    { name: 'NUL only', value: '\u0000' },
+    { name: 'multiple NULs', value: 'a\u0000b\u0000c' },
+    { name: 'NUL with surrounding spaces', value: '  a\u0000b  ' },
+    { name: 'lowest isolated high surrogate', value: '\uD800' },
+    { name: 'highest isolated high surrogate', value: '\uDBFF' },
+    { name: 'lowest isolated low surrogate', value: '\uDC00' },
+    { name: 'highest isolated low surrogate', value: '\uDFFF' },
+    { name: 'two high surrogates', value: '\uD800\uDBFF' },
+    { name: 'two low surrogates', value: '\uDC00\uDFFF' },
+    { name: 'reversed surrogate pair', value: '\uDC00\uD800' },
+    { name: 'isolated high surrogate before a valid pair', value: '\uD800\uD83D\uDE00' },
+    { name: 'isolated low surrogate after a valid pair', value: '\uD83D\uDE00\uDFFF' },
+    { name: 'isolated surrogate between valid characters', value: 'a\uD800b' },
+  ];
+  const fields = ['title', 'description'] as const;
+
+  it.each(fields.flatMap((field) => invalidText.map((fixture) => ({ field, ...fixture }))))(
+    'rejects $name in $field',
+    ({ field, value }) => {
+      expect.assertions(2);
+      try {
+        validateTaskInput({ title: 'Example', [field]: value });
+      } catch (error) {
+        expect(error).toBeInstanceOf(TaskValidationError);
+        expect(error).toHaveProperty('field', field);
+      }
+    },
+  );
+
+  it.each([
+    { name: 'first and last supplementary code points', value: '\uD800\uDC00\uDBFF\uDFFF' },
+    { name: 'explicit replacement character', value: '\uFFFD' },
+    { name: 'interior tab and newline', value: 'a\tb\nc' },
+    { name: 'mixed valid Unicode', value: '\u{10000}\u{1F600}e\u0301\uFFFD\tline\n\u{10FFFF}' },
+  ])('preserves $name in both text fields', ({ value }) => {
+    const description = '  ' + value + '  ';
+    expect(validateTaskInput({ title: ' \t' + value + '\n ', description }))
+      .toEqual({ title: value, description });
+  });
+});

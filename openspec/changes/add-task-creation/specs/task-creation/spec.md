@@ -22,7 +22,7 @@ O endpoint POST /tasks MUST aceitar somente um objeto JSON com title e, opcional
 - **THEN** a API retorna 400 e nenhuma tarefa e persistida
 
 ### Requirement: Titulo normalizado e validado
-title MUST ser uma string obrigatoria. A API MUST aplicar trim antes de validar e persistir o titulo. O resultado MUST conter de 1 a 120 pontos de codigo Unicode, inclusive, sem contagem por unidades UTF-16 ou grafemas.
+title MUST ser uma string obrigatoria. A API MUST aplicar trim antes de validar e persistir o titulo. O resultado MUST conter de 1 a 120 pontos de codigo Unicode, inclusive, sem contagem por unidades UTF-16 ou grafemas. A API MUST rejeitar U+0000 e substitutos UTF-16 isolados. Dentro das demais regras, a API MUST aceitar e preservar Unicode valido, inclusive pares substitutos validos e U+FFFD fornecido pelo cliente, sem normalizar, remover ou substituir caracteres alem do trim previsto.
 
 #### Scenario: Trim antes do limite
 - **WHEN** title contem espacos nas extremidades e exatamente 120 pontos de codigo apos trim
@@ -48,8 +48,16 @@ title MUST ser uma string obrigatoria. A API MUST aplicar trim antes de validar 
 - **WHEN** title contem 60 repeticoes da sequencia U+0065 U+0301
 - **THEN** a API conta 120 pontos de codigo e preserva a sequencia sem normalizacao Unicode
 
+#### Scenario: NUL no titulo
+- **WHEN** title contem U+0000, inclusive quando e composto apenas por esse caractere
+- **THEN** a API retorna 400 com o envelope VALIDATION_ERROR existente e detalhe para title, sem chamar o repositorio nem tentar persistir
+
+#### Scenario: Substitutos isolados no titulo
+- **WHEN** title contem uma unidade substituta UTF-16 alta ou baixa sem seu par valido
+- **THEN** a API retorna 400 com o envelope VALIDATION_ERROR existente e detalhe para title, sem chamar o repositorio nem tentar persistir
+
 ### Requirement: Descricao opcional preservada
-description MUST aceitar somente string quando presente, com no maximo 500 pontos de codigo Unicode. A API MUST preservar espacos e nao aplicar trim ou normalizacao Unicode. Ausencia MUST ser persistida como NULL e retornada como null; string vazia MUST permanecer vazia.
+description MUST aceitar somente string quando presente, com no maximo 500 pontos de codigo Unicode. A API MUST preservar espacos e nao aplicar trim ou normalizacao Unicode. Ausencia MUST ser persistida como NULL e retornada como null; string vazia MUST permanecer vazia. A API MUST rejeitar U+0000 e substitutos UTF-16 isolados. A API MUST aceitar e preservar Unicode valido, incluindo U+FFFD explicito, sem remocao ou substituicao.
 
 #### Scenario: Descricao ausente
 - **WHEN** uma requisicao valida omite description
@@ -70,6 +78,18 @@ description MUST aceitar somente string quando presente, com no maximo 500 ponto
 #### Scenario: Descricao invalida
 - **WHEN** description e null, numero, booleano, objeto, lista ou string com 501 pontos de codigo
 - **THEN** a API retorna 400 e nenhuma tarefa e persistida
+
+#### Scenario: NUL na descricao
+- **WHEN** description contem U+0000, inclusive quando e composta apenas por esse caractere
+- **THEN** a API retorna 400 com o envelope VALIDATION_ERROR existente e detalhe para description, sem chamar o repositorio nem tentar persistir
+
+#### Scenario: Substitutos isolados na descricao
+- **WHEN** description contem uma unidade substituta UTF-16 alta ou baixa sem seu par valido
+- **THEN** a API retorna 400 com o envelope VALIDATION_ERROR existente e detalhe para description, sem chamar o repositorio nem tentar persistir
+
+#### Scenario: Preservacao de Unicode valido nos campos de texto
+- **WHEN** title ou description contem pares substitutos validos, emojis, sequencias combinantes ou U+FFFD fornecido explicitamente, dentro das demais regras de validacao
+- **THEN** a API retorna 201 e preserva esses caracteres na persistencia e na resposta, com apenas o trim previsto para title
 
 ### Requirement: Criacao persistida com campos gerados
 A API MUST persistir cada tarefa no PostgreSQL com id UUID gerado pelo sistema, title validado, description, status pending e createdAt gerado pelo sistema. MUST retornar 201 somente apos confirmacao da persistencia, com objeto JSON contendo id, title, description, status e createdAt. createdAt MUST ser UTC em ISO 8601.

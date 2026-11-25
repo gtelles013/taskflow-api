@@ -15,28 +15,34 @@
 
 ## 3. PostgreSQL
 
-- [ ] 3.1 Configurar pool com timeout finito e ambiente de testes dedicado; verificar conexao UTF-8, teardown e falha clara da suite de integracao quando TEST_DATABASE_URL nao estiver disponivel.
-- [ ] 3.2 Criar migracao versionada para tasks com UUID/default, title e description com CHECKs, pending/default e created_at com precisao de milissegundos; aplicar em banco de teste e verificar defaults, NOT NULL, limites Unicode e ausencia de unicidade de titulo.
-- [ ] 3.3 Implementar repositorio create com SQL parametrizado e INSERT RETURNING, omitindo campos gerados; testar em PostgreSQL real UUID, pending, data, descricao nula/vazia/com espacos e titulos duplicados.
-- [ ] 3.4 Documentar migracao, precondicao gen_random_uuid() e rollback operacional preservando dados; verificar migracao em banco descartavel e instrucoes locais.
+- [x] 3.1 Configurar pool com timeout finito e ambiente de testes dedicado; verificar conexao UTF-8, teardown e falha clara da suite de integracao quando TEST_DATABASE_URL nao estiver disponivel.
+- [x] 3.2 Criar migracao versionada para tasks com UUID/default, title e description com CHECKs, pending/default e created_at com precisao de milissegundos; aplicar em banco de teste e verificar defaults, NOT NULL, limites Unicode e ausencia de unicidade de titulo.
+- [x] 3.3 Implementar repositorio create com SQL parametrizado e INSERT RETURNING, omitindo campos gerados; testar em PostgreSQL real UUID, pending, data, descricao nula/vazia/com espacos e titulos duplicados.
+- [x] 3.4 Documentar migracao, precondicao gen_random_uuid() e rollback operacional preservando dados; verificar migracao em banco descartavel e instrucoes locais.
 
 ## 4. Endpoint POST /tasks
 
-- [ ] 4.1 Registrar rota com validacao antes de inserir e resposta JSON completa obtida do repositorio; testar com Fastify.inject criacao minima/completa e 201 somente apos persistencia confirmada.
-- [ ] 4.2 Mapear created_at para createdAt UTC ISO 8601 e definir schema de resposta com description nullable; verificar UUID, titulo apos trim, descricao e pending nos testes HTTP.
-- [ ] 4.3 Cobrir com inject JSON malformado, corpo ausente, lista/escalares/null e toda a matriz de entradas invalidas; verificar 400 e zero chamadas ao repositorio.
-- [ ] 4.4 Documentar exemplos HTTP de entrada e resposta, incluindo duplicados e ausencia de idempotencia; conferir exemplos contra testes da rota.
+- [x] 4.1 Registrar rota com validacao antes de inserir e resposta JSON completa obtida do repositorio; testar com Fastify.inject criacao minima/completa e 201 somente apos persistencia confirmada.
+- [x] 4.2 Mapear created_at para createdAt UTC ISO 8601 e definir schema de resposta com description nullable; verificar UUID, titulo apos trim, descricao e pending nos testes HTTP.
+- [x] 4.3 Cobrir com inject JSON malformado, corpo ausente, lista/escalares/null e toda a matriz de entradas invalidas; verificar 400 e zero chamadas ao repositorio.
+- [x] 4.4 Documentar exemplos HTTP de entrada e resposta, incluindo duplicados e ausencia de idempotencia; conferir exemplos contra testes da rota.
 
 ## 5. Tratamento de erros
 
-- [ ] 5.1 Centralizar envelope error com code/message estaveis e details por campo quando aplicavel; testar 400 e garantir que mensagens internas nao sejam expostas.
-- [ ] 5.2 Classificar indisponibilidade por codigos estruturados de rede/driver/SQLSTATE e timeout conhecido; testar 503 para casos identificados e 500 para erros inesperados, incluindo falhas nao classificadas de insercao.
-- [ ] 5.3 Registrar diagnosticos internos com identificador de requisicao sem expor SQL, credenciais ou stack traces nas respostas; testar ausencia desses dados e ausencia de retry automatico.
-- [ ] 5.4 Documentar respostas 400/503/500 e resultado incerto em queda de conexao apos commit; verificar alinhamento com o design sem prometer ausencia de linha apos falha de infraestrutura.
+- [x] 5.1 Centralizar envelope error com code/message estaveis e details por campo quando aplicavel; testar 400 e garantir que mensagens internas nao sejam expostas.
+- [x] 5.2 Classificar indisponibilidade por codigos estruturados de rede/driver/SQLSTATE e timeout conhecido; testar 503 para casos identificados e 500 para erros inesperados, incluindo falhas nao classificadas de insercao.
+- [x] 5.3 Registrar diagnosticos internos com identificador de requisicao sem expor SQL, credenciais ou stack traces nas respostas; testar ausencia desses dados e ausencia de retry automatico.
+- [x] 5.4 Documentar respostas 400/503/500 e resultado incerto em queda de conexao apos commit; verificar alinhamento com o design sem prometer ausencia de linha apos falha de infraestrutura.
 
 ## 6. Verificacao integrada
 
-- [ ] 6.1 Executar testes Vitest via HTTP com PostgreSQL real e consultar as linhas; verificar criacao minima/completa, limites Unicode, preservacao de descricao, UUIDs distintos para titulos duplicados e mesmo instante de createdAt.
-- [ ] 6.2 Testar conexao real controlada a banco indisponivel e falha inesperada simulada; verificar respectivamente 503 e 500 sem afetar ambientes de desenvolvimento/producao.
-- [ ] 6.3 Executar typecheck, build e suites unitarias/HTTP/integracao com isolamento e teardown; registrar resultados e conferir cobertura de todos os cenarios aprovados sem adicionar autenticacao, prioridade, prazo ou outros endpoints.
+- [x] 6.1 Executar testes Vitest via HTTP com PostgreSQL real e consultar as linhas; verificar criacao minima/completa, limites Unicode, preservacao de descricao, UUIDs distintos para titulos duplicados e mesmo instante de createdAt.
+- [x] 6.2 Testar conexao real controlada a banco indisponivel e falha inesperada simulada; verificar respectivamente 503 e 500 sem afetar ambientes de desenvolvimento/producao.
+- [x] 6.3 Executar typecheck, build e suites unitarias/HTTP/integracao com isolamento e teardown; registrar resultados e conferir cobertura de todos os cenarios aprovados sem adicionar autenticacao, prioridade, prazo ou outros endpoints.
 
+## 7. Integridade dos campos Unicode
+
+- [x] 7.1 Implementar a rejeicao de U+0000 e substitutos UTF-16 isolados no validador, preservando as regras existentes.
+- [x] 7.2 Adicionar testes de regressao unitarios e HTTP em memoria, verificando o envelope por campo, zero chamadas ao repositorio para entradas invalidas e preservacao de Unicode valido.
+- [x] 7.3 Atualizar docs/task-creation.md com as regras de entrada e a disponibilidade atual do endpoint.
+- [x] 7.4 Executar typecheck, build e as suites autorizadas, validar o OpenSpec e registrar as evidencias adicionais sem invalidar os resultados historicos.
