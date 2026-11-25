@@ -40,3 +40,9 @@
 - [x] 6.2 Testar conexao real controlada a banco indisponivel e falha inesperada simulada; verificar respectivamente 503 e 500 sem afetar ambientes de desenvolvimento/producao.
 - [x] 6.3 Executar typecheck, build e suites unitarias/HTTP/integracao com isolamento e teardown; registrar resultados e conferir cobertura de todos os cenarios aprovados sem adicionar autenticacao, prioridade, prazo ou outros endpoints.
 
+## 7. Integridade dos campos Unicode
+
+- [x] 7.1 Implementar a rejeicao de U+0000 e substitutos UTF-16 isolados no validador, preservando as regras existentes.
+- [x] 7.2 Adicionar testes de regressao unitarios e HTTP em memoria, verificando o envelope por campo, zero chamadas ao repositorio para entradas invalidas e preservacao de Unicode valido.
+- [x] 7.3 Atualizar docs/task-creation.md com as regras de entrada e a disponibilidade atual do endpoint.
+- [x] 7.4 Executar typecheck, build e as suites autorizadas, validar o OpenSpec e registrar as evidencias adicionais sem invalidar os resultados historicos.

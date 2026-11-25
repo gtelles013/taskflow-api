@@ -36,6 +36,13 @@ export class TaskValidationError extends Error {
 const validateBody = new Ajv(strictValidationOptions)
   .compile<TaskCreationBody>(taskCreationBodySchema);
 
+function validateTextIntegrity(value: string, field: 'title' | 'description'): void {
+  // The u flag matches a valid pair as one code point outside the surrogate range.
+  if (/[\u0000\uD800-\uDFFF]/u.test(value)) {
+    throw new TaskValidationError(field, 'Text must not contain NUL or isolated UTF-16 surrogates');
+  }
+}
+
 export function validateTaskInput(input: unknown): ValidatedTaskInput {
   if (!validateBody(input)) {
     const issue = validateBody.errors?.[0];
@@ -53,9 +60,14 @@ export function validateTaskInput(input: unknown): ValidatedTaskInput {
     throw new TaskValidationError('title', 'Title must contain 1 to 120 Unicode code points after trim');
   }
 
+  validateTextIntegrity(title, 'title');
+
   const description = input.description;
-  if (description !== undefined && Array.from(description).length > 500) {
-    throw new TaskValidationError('description', 'Description must contain at most 500 Unicode code points');
+  if (description !== undefined) {
+    if (Array.from(description).length > 500) {
+      throw new TaskValidationError('description', 'Description must contain at most 500 Unicode code points');
+    }
+    validateTextIntegrity(description, 'description');
   }
 
   return { title, description: description ?? null };

@@ -8,7 +8,7 @@ Ver proposal.md para motivacao e specs/task-creation/spec.md para requisitos apr
 
 **Goals:** separar validacao HTTP e persistencia, manter o contrato estrito e permitir testes HTTP sem abrir portas e integracao com PostgreSQL real.
 
-**Non-Goals:** autenticacao, prioridade, prazo, outros endpoints, unicidade de titulo, idempotencia e camadas genericas de dominio. Nenhuma mudanca de requisitos ou codigo nesta etapa.
+**Non-Goals:** autenticacao, prioridade, prazo, outros endpoints, unicidade de titulo, idempotencia e camadas genericas de dominio.
 
 ## Decisions
 
@@ -16,7 +16,7 @@ Ver proposal.md para motivacao e specs/task-creation/spec.md para requisitos apr
 
 Adotar uma fabrica de aplicacao Fastify separada do entrypoint que escuta a porta. A fabrica registra POST /tasks e recebe o repositorio de tarefas como dependencia; o entrypoint configura o pool PostgreSQL e encerra servidor/pool no shutdown.
 
-Fluxo: JSON -> validacao de estrutura/tipos -> trim e limites Unicode -> repositorio -> INSERT RETURNING -> resposta 201.
+Fluxo: JSON -> validacao de estrutura/tipos -> trim do titulo e validacao Unicode -> repositorio -> INSERT RETURNING -> resposta 201.
 
 Usar um modulo de validacao e um repositorio pequeno com operacao create. Evitar ORM e camada de servico sem logica adicional: driver pg com SQL parametrizado torna o mapeamento e o comportamento de insercao explicitos. Manter a organizacao modular existente do pacote, ajustando TypeScript para tipos Node e execucao/build consistentes; nao migrar para ESM sem necessidade. Configurar conexao por DATABASE_URL e banco de testes separado por TEST_DATABASE_URL, sem credenciais no repositorio.
 
@@ -29,6 +29,16 @@ Aplicar String.prototype.trim ao titulo antes da verificacao de comprimento. Con
 Validar estrutura/tipos por schema e os limites por validacao explicita apos trim. Configurar o validador para nao remover propriedades adicionais e nao converter tipos ou inserir defaults no corpo: additionalProperties false, removeAdditional false, coerceTypes false e useDefaults false. Isto evita aceitar silenciosamente campos extras ou converter numeros em strings. Campos id, status e createdAt nao pertencem ao schema de entrada e sao rejeitados mesmo com null ou valores aparentemente corretos.
 
 JSON malformado, corpo ausente e valores JSON que nao sejam objetos retornam 400. A validacao ocorre antes de qualquer insercao. Nenhuma restricao de unicidade e aplicada ao titulo. Schemas de resposta incluem description nullable e todos os campos gerados.
+
+#### Integridade dos campos de texto Unicode
+
+PostgreSQL text nao armazena U+0000. A leitura estatica do caminho anterior a verificacao indicou que NUL poderia chegar ao banco e resultar em erro de insercao e HTTP 500. Uma unidade substituta UTF-16 isolada pode ser convertida em U+FFFD na codificacao UTF-8 do driver e alterar silenciosamente o valor persistido. Esses resultados para entradas invalidas sao inferidos por leitura estatica. As execucoes historicas cobrem emojis suplementares e sequencias combinantes validas.
+
+Rejeitar U+0000 e substitutos isolados antes de chamar o repositorio, com uma verificacao compartilhada no validador. Aplicar a verificacao ao titulo apos trim e a descricao presente em sua forma original. String.prototype.isWellFormed() foi considerada inicialmente. O Node.js minimo declarado (22.12.0) oferece o metodo, mas a configuracao TypeScript ES2022 nao inclui sua declaracao, presente na biblioteca ES2024.String. A verificacao compartilhada usa `/[\u0000\uD800-\uDFFF]/u`, preservando ES2022 e as dependencias existentes. A flag u interpreta pares substitutos validos como pontos de codigo suplementares, fora de D800-DFFF. A expressao detecta NUL e unidades substitutas isoladas, sem flags g ou y e sem modificar o conteudo.
+
+Manter a contagem por pontos de codigo e preservar pares validos, emojis, sequencias combinantes, U+FFFD explicito, espacos e descricao vazia ou omitida. As demais regras para caracteres de controle permanecem as mesmas. Usar TaskValidationError para indicar title ou description e aproveitar o envelope HTTP 400 VALIDATION_ERROR existente. A verificacao fica no validador e dispensa alteracoes na rota, no handler de erros, no driver, no repositorio e na migracao.
+
+Na etapa 8.6, typecheck, build e as regressoes unitarias e HTTP em memoria passaram. Os testes em memoria confirmaram a rejeicao por campo antes do repositorio e a preservacao de Unicode valido, inclusive U+FFFD explicito. Na etapa 8.7, a suite HTTP existente com PostgreSQL real confirmou a persistencia do caminho valido coberto, incluindo emojis e sequencias combinantes. NUL, substitutos isolados e U+FFFD ficaram fora dos casos de PostgreSQL real. O registro detalhado dessas execucoes fica para validation.md.
 
 ### Persistencia PostgreSQL
 

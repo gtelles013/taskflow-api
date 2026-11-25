@@ -471,3 +471,105 @@ describe('POST /tasks input validation over HTTP', () => {
     expect(repository.close).toHaveBeenCalledOnce();
   });
 });
+
+describe('POST /tasks Unicode text integrity over HTTP', () => {
+  const jsonHeaders = { 'content-type': 'application/json' };
+  const invalidText = [
+    { name: 'escaped NUL', escaped: '\\u0000', decoded: '\u0000' },
+    { name: 'escaped isolated high surrogate', escaped: '\\uD800', decoded: '\uD800' },
+    { name: 'escaped isolated low surrogate', escaped: '\\uDC00', decoded: '\uDC00' },
+    { name: 'escaped reversed surrogate pair', escaped: '\\uDC00\\uD800', decoded: '\uDC00\uD800' },
+    { name: 'escaped isolated unit beside a valid pair', escaped: '\\uD83D\\uDE00\\uDFFF', decoded: '\u{1F600}\uDFFF' },
+  ];
+  const fields = ['title', 'description'] as const;
+
+  it.each(fields.flatMap((field) => invalidText.map((fixture) => ({ field, ...fixture }))))(
+    'rejects $name in $field before persistence',
+    async ({ field, escaped, decoded }) => {
+      const marker = 'unicode-input-marker';
+      const payload = field === 'title'
+        ? '{"title":"' + marker + escaped + '"}'
+        : '{"title":"Example","description":"' + marker + escaped + '"}';
+      const parsedInput = { title: 'Example', [field]: marker + decoded };
+      const validate = vi.spyOn(validation, 'validateTaskInput');
+      const repository = mockRepository();
+      const app = buildApp({ taskRepository: repository });
+      try {
+        const response = await app.inject({
+          method: 'POST', url: '/tasks', headers: jsonHeaders, payload,
+        });
+        expect(validate).toHaveBeenCalledExactlyOnceWith(parsedInput);
+        expect(response.statusCode).toBe(400);
+        expect(response.json()).toEqual({
+          error: {
+            code: 'VALIDATION_ERROR',
+            message: 'Invalid task input',
+            details: [{ field, message: field === 'title' ? 'Invalid title' : 'Invalid description' }],
+          },
+        });
+        expect(repository.create).not.toHaveBeenCalled();
+        expect(response.body).not.toContain(marker);
+        expect(response.body).not.toContain(decoded);
+        expect(response.body.toLowerCase()).not.toContain(escaped.toLowerCase());
+      } finally {
+        await app.close();
+      }
+      expect(repository.close).toHaveBeenCalledOnce();
+    },
+  );
+
+  it('rejects a literal unescaped NUL as malformed JSON before field validation', async () => {
+    const payload = Buffer.from('{"title":"a\u0000b"}', 'utf8');
+    const validate = vi.spyOn(validation, 'validateTaskInput');
+    const repository = mockRepository();
+    const app = buildApp({ taskRepository: repository });
+    try {
+      const response = await app.inject({
+        method: 'POST', url: '/tasks', headers: jsonHeaders, payload,
+      });
+      expect(response.statusCode).toBe(400);
+      expect(response.json()).toEqual({
+        error: {
+          code: 'VALIDATION_ERROR',
+          message: 'Invalid task input',
+          details: [{ field: 'body', message: 'Invalid request body' }],
+        },
+      });
+      expect(validate).not.toHaveBeenCalled();
+      expect(repository.create).not.toHaveBeenCalled();
+    } finally {
+      await app.close();
+    }
+    expect(repository.close).toHaveBeenCalledOnce();
+  });
+
+  it.each([
+    { name: 'escaped supplementary pair', jsonText: '\\uD800\\uDC00', decoded: '\u{10000}' },
+    { name: 'literal emoji', jsonText: '\u{1F600}', decoded: '\u{1F600}' },
+    { name: 'combining sequence', jsonText: 'e\\u0301', decoded: 'e\u0301' },
+    { name: 'explicit replacement character', jsonText: '\\uFFFD', decoded: '\uFFFD' },
+    {
+      name: 'mixed valid Unicode',
+      jsonText: '\\uDBFF\\uDFFF\u{1F600}e\\u0301\\uFFFD',
+      decoded: '\u{10FFFF}\u{1F600}e\u0301\uFFFD',
+    },
+  ])('preserves $name in the repository arguments and response', async ({ jsonText, decoded }) => {
+    const payload = '{"title":" \\t' + jsonText + '\\n ","description":" \\t' + jsonText + '\\n "}';
+    const expected = { title: decoded, description: ' \t' + decoded + '\n ' };
+    const repository = mockRepository();
+    repository.create.mockImplementation(async (input) => returnedTask(input));
+    const app = buildApp({ taskRepository: repository });
+    try {
+      const response = await app.inject({
+        method: 'POST', url: '/tasks', headers: jsonHeaders, payload,
+      });
+      expect(response.statusCode).toBe(201);
+      expect(repository.create).toHaveBeenCalledExactlyOnceWith(expected);
+      const task = returnedTask(expected);
+      expect(response.json()).toEqual({ ...task, createdAt: task.createdAt.toISOString() });
+    } finally {
+      await app.close();
+    }
+    expect(repository.close).toHaveBeenCalledOnce();
+  });
+});

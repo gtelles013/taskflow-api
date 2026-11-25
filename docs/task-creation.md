@@ -2,17 +2,17 @@
 
 ## Disponibilidade atual
 
-A rota POST /tasks esta implementada na fabrica Fastify quando TaskRepository e injetado. O entrypoint atual src/server.ts ainda nao compoe essa dependencia; portanto, npm start ainda nao disponibiliza POST /tasks. A composicao operacional sera realizada posteriormente.
+O entrypoint src/server.ts inicia o runtime, que cria o pool PostgreSQL e injeta o repositorio na fabrica Fastify. Apos o build, npm.cmd start disponibiliza POST /tasks quando o servidor inicia com DATABASE_URL valida. A persistencia exige PostgreSQL acessivel e a migracao 0001 aplicada ao banco configurado. O startup nao executa a migracao automaticamente. A aplicacao da migracao em taskflow_dev permanece sem comprovacao.
 
-Os blocos abaixo descrevem o contrato HTTP e nao sao comandos para executar contra npm start neste estagio. UUIDs e timestamps das respostas sao valores ilustrativos gerados pelo sistema, nunca enviados pelo cliente. A resposta 201 utiliza os valores retornados pelo repositorio, somente apos a confirmacao da criacao.
+Os blocos abaixo descrevem o contrato HTTP. UUIDs e timestamps das respostas sao valores ilustrativos gerados pelo sistema, nunca enviados pelo cliente. A resposta 201 utiliza os valores retornados pelo repositorio, somente apos a confirmacao da criacao.
 
 ## Entrada e resposta
 
 Enviar um objeto JSON com title e, opcionalmente, description:
 
-- title e uma string obrigatoria, com 1 a 120 pontos de codigo Unicode apos trim. Espacos internos sao preservados.
-- description e uma string opcional de ate 500 pontos de codigo Unicode, sem trim. Quando omitida, resulta em null na resposta; null explicito na entrada e invalido.
-- Descricao vazia ou composta somente por espacos e preservada. Nao ha normalizacao Unicode adicional.
+- title e uma string obrigatoria. O trim precede as verificacoes de comprimento e integridade. O resultado deve ter de 1 a 120 pontos de codigo Unicode. Espacos internos sao preservados. U+0000 e substitutos UTF-16 isolados sao rejeitados.
+- description e uma string opcional de ate 500 pontos de codigo Unicode, sem trim. A omissao e persistida como NULL e retornada como null. A entrada com null explicito, U+0000 ou substitutos UTF-16 isolados e rejeitada.
+- Descricao vazia ou com espacos e preservada. Pares substitutos validos, emojis, sequencias combinantes e U+FFFD fornecido explicitamente sao aceitos e preservados dentro das demais regras. A validacao mantem as regras dos demais caracteres de controle e preserva os caracteres aceitos sem normalizacao ou substituicao.
 - Campos desconhecidos, inclusive id, status e createdAt, e tipos invalidos sao rejeitados com HTTP 400. Nao ha coercao automatica de tipos.
 - JSON malformado, corpo ausente e corpos JSON que nao sejam objetos tambem retornam 400, sem chamada de criacao ao repositorio.
 
@@ -190,6 +190,32 @@ Os detalhes publicos usam somente title, description ou body, com mensagens Inva
 ```
 
 Essas entradas invalidas sao rejeitadas antes da chamada de criacao ao repositorio. A validacao continua estrita, sem coercao ou normalizacao adicional.
+
+Em JSON valido, o escape `\u0000` representa NUL no campo. Por exemplo, este titulo recebe HTTP 400 com o mesmo envelope e detalhe `title` / `Invalid title` mostrado acima.
+
+```json
+{"title":"Tarefa\u0000invalida"}
+```
+
+Uma descricao com um substituto UTF-16 isolado tambem recebe HTTP 400.
+
+```json
+{"title":"Tarefa","description":"\uD800"}
+```
+
+```json
+{
+  "error": {
+    "code": "VALIDATION_ERROR",
+    "message": "Invalid task input",
+    "details": [
+      { "field": "description", "message": "Invalid description" }
+    ]
+  }
+}
+```
+
+A validacao de campo rejeita ambos os exemplos antes de chamar o repositorio. Um NUL literal sem escape dentro da string JSON torna o corpo malformado e recebe o detalhe `body` / `Invalid request body`.
 
 ### 503: indisponibilidade reconhecida
 
